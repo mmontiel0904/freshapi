@@ -1,1 +1,37 @@
-/target
+# Rust build artifacts
+/target/
+**/target/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment variables (keep .env for development template)
+.env
+
+# Database
+*.db
+*.sqlite
+
+# Logs
+*.log
+
+# Dependencies
+node_modules/
+
+# Build artifacts
+/dist/
+/build/
+
+# Temporary files
+*.tmp
+*.temp
+
+# Docker
+.dockerignore
