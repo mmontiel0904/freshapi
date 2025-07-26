@@ -18,6 +18,9 @@ FreshAPI is a Rust-based GraphQL API service built with modern async frameworks.
 ## Development Commands
 
 ```bash
+# Database setup (run first)
+docker-compose up -d
+
 # Build the project
 cargo build
 
@@ -38,6 +41,12 @@ cargo clippy
 
 # Run with release optimizations
 cargo run --release
+
+# Database migrations
+cargo run --bin migration
+
+# Stop database
+docker-compose down
 ```
 
 ## Architecture Notes
@@ -54,4 +63,27 @@ This is a fresh Rust project configured for building a GraphQL API with:
 - UUID support for identifiers
 - JSON serialization with serde
 
-The project currently contains only a basic main.rs with a "Hello, world!" placeholder, indicating it's ready for initial API development.
+## Documentation Rules
+
+**CRITICAL**: Before editing any documentation file (README.md, CLAUDE.md, CHANGELOG.md), you MUST:
+
+1. **Read the existing file completely** using the Read tool
+2. **Understand the current content and structure**
+3. **Make targeted updates** that preserve existing information
+4. **Update CHANGELOG.md** with details about what documentation was changed
+
+## Frontend Integration Notes
+
+The API is designed with TypeScript/Vue.js frontend integration in mind:
+
+- GraphQL introspection enabled for automatic type generation
+- CORS configured for local frontend development (ports 3000, 5173)
+- JWT authentication compatible with frontend token storage
+- Structured error responses for proper frontend error handling
+
+## Local Development Setup
+
+The project includes Docker Compose for PostgreSQL:
+- Database: `postgresql://freshapi_user:freshapi_password@localhost:5432/freshapi_db`
+- Adminer web interface: `http://localhost:8081`
+- All configuration in `.env` file
