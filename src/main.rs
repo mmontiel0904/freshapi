@@ -100,7 +100,9 @@ async fn health() -> impl IntoResponse {
 
 async fn graphql_schema(State(state): State<AppState>) -> impl IntoResponse {
     // Only expose schema in development environment
-    let environment = env::var("ENVIRONMENT").unwrap_or_else(|_| "production".to_string());
+    let environment = env::var("RAILWAY_ENVIRONMENT_NAME")
+        .or_else(|_| env::var("ENVIRONMENT"))
+        .unwrap_or_else(|_| "production".to_string());
     
     if environment != "development" {
         return (StatusCode::NOT_FOUND, "Schema not available in production").into_response();
@@ -119,7 +121,9 @@ async fn graphql_schema(State(state): State<AppState>) -> impl IntoResponse {
 
 async fn graphql_introspection(State(state): State<AppState>) -> impl IntoResponse {
     // Only allow introspection in development
-    let environment = env::var("ENVIRONMENT").unwrap_or_else(|_| "production".to_string());
+    let environment = env::var("RAILWAY_ENVIRONMENT_NAME")
+        .or_else(|_| env::var("ENVIRONMENT"))
+        .unwrap_or_else(|_| "production".to_string());
     
     if environment != "development" {
         return (StatusCode::NOT_FOUND, axum::Json(serde_json::json!({
@@ -245,6 +249,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|_| "http://localhost:3000,http://localhost:5173".to_string());
     let host = env::var("HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
     let port = env::var("PORT").unwrap_or_else(|_| "8080".to_string());
+    
+    // Check environment - Railway uses RAILWAY_ENVIRONMENT_NAME, fallback to ENVIRONMENT
+    let environment = env::var("RAILWAY_ENVIRONMENT_NAME")
+        .or_else(|_| env::var("ENVIRONMENT"))
+        .unwrap_or_else(|_| "development".to_string());
+    
+    info!("🚀 Starting FreshAPI in {} environment", environment);
 
     // Connect to database
     info!("Connecting to database...");
