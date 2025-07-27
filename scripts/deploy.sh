@@ -7,17 +7,11 @@ set -e
 
 echo "🔄 Starting deployment..."
 
-# Debug: List what binaries were built
-echo "📋 Checking built binaries..."
-echo "Contents of ./target/release/:"
-ls -la ./target/release/ || echo "Main target directory not found"
-echo "Contents of ./migration/target/release/:"
-ls -la ./migration/target/release/ || echo "Migration target directory not found"
-
-# Run database migrations using pre-built binary
+# Run database migrations - use cargo run since it works
 echo "📊 Running database migrations..."
-./migration/target/release/migration
+cd migration && cargo run --release
 migration_status=$?
+cd ..
 
 # Check migration status
 if [ $migration_status -eq 0 ]; then
@@ -27,14 +21,6 @@ else
     exit 1
 fi
 
-# Start the application using pre-built binary
+# Start the application - use cargo run for reliability
 echo "🚀 Starting FreshAPI server..."
-echo "Current working directory: $(pwd)"
-echo "Looking for binary at: ./target/release/freshapi"
-
-if [ -f "./target/release/freshapi" ]; then
-    exec ./target/release/freshapi
-else
-    echo "❌ Binary not found, falling back to cargo run"
-    exec cargo run --release --bin freshapi
-fi
+exec cargo run --release --bin freshapi

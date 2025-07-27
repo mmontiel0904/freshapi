@@ -2,10 +2,7 @@
 nixPkgs = ["...", "postgresql"]
 
 [phases.build]
-cmds = [
-  "cargo build --release",
-  "cd migration && cargo build --release"
-]
+cmds = ["cargo build --release"]
 
 [phases.start]
 cmd = "cargo run --release --bin freshapi"
