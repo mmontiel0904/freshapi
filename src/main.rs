@@ -11,6 +11,7 @@ use axum::{
 };
 use dotenvy::dotenv;
 use sea_orm::{Database, DatabaseConnection};
+use sea_orm_migration::MigratorTrait;
 use tokio::net::TcpListener;
 use tower_http::cors::{Any, CorsLayer};
 use tracing::{info, warn};
@@ -261,6 +262,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Connecting to database...");
     let db = Database::connect(&database_url).await?;
     info!("Database connected successfully");
+
+    // Run database migrations automatically
+    info!("Running database migrations...");
+    sea_orm_migration::Migrator::up(&db, None).await
+        .map_err(|e| format!("Migration failed: {}", e))?;
+    info!("Database migrations completed successfully");
 
     // Initialize services
     let jwt_service = JwtService::new(&jwt_secret, jwt_expiration_hours);
