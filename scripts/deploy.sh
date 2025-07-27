@@ -7,11 +7,10 @@ set -e
 
 echo "🔄 Starting deployment..."
 
-# Run database migrations from the migration directory
+# Run database migrations using pre-built binary
 echo "📊 Running database migrations..."
-cd migration && cargo run --release
+./migration/target/release/migration
 migration_status=$?
-cd ..
 
 # Check migration status
 if [ $migration_status -eq 0 ]; then
@@ -21,6 +20,6 @@ else
     exit 1
 fi
 
-# Start the application
+# Start the application using pre-built binary
 echo "🚀 Starting FreshAPI server..."
-exec cargo run --release --bin freshapi
+exec ./target/release/freshapi
