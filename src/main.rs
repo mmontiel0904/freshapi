@@ -269,15 +269,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // Setup CORS
-    let cors_origins: Vec<HeaderValue> = cors_origins
-        .split(',')
-        .filter_map(|origin| origin.trim().parse().ok())
-        .collect();
-
-    let cors = CorsLayer::new()
-        .allow_origin(cors_origins)
-        .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
-        .allow_headers([CONTENT_TYPE]);
+    let cors = if cors_origins.trim() == "*" {
+        // Allow any origin (DANGEROUS - only for development!)
+        warn!("🚨 CORS set to accept ANY origin (*) - only use in development!");
+        CorsLayer::permissive()
+    } else {
+        // Parse specific origins
+        let origins: Vec<HeaderValue> = cors_origins
+            .split(',')
+            .filter_map(|origin| origin.trim().parse().ok())
+            .collect();
+        
+        CorsLayer::new()
+            .allow_origin(origins)
+            .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
+            .allow_headers([CONTENT_TYPE])
+    };
 
     // Create router
     let app = Router::new()

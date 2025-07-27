@@ -153,7 +153,10 @@ Key mutations and queries:
 
 #### Optional Configuration:
 - `RESEND_API_KEY`: Email service API key for email functionality
-- `CORS_ALLOWED_ORIGINS`: Frontend domains for CORS (e.g., `https://your-app.com`)
+- `CORS_ALLOWED_ORIGINS`: Frontend domains for CORS
+  - Production: `https://your-app.com,https://www.your-app.com`
+  - Development: `http://localhost:3000,http://localhost:5173`
+  - **Any origin**: `*` (⚠️ **DANGEROUS** - development only!)
 - `HOST`: Server host (default: `0.0.0.0`)
 - `PORT`: Server port (default: `8080`)
 - `JWT_EXPIRATION_HOURS`: Token expiration time (default: `24`)
