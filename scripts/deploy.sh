@@ -7,12 +7,14 @@ set -e
 
 echo "🔄 Starting deployment..."
 
-# Run database migrations
+# Run database migrations from the migration directory
 echo "📊 Running database migrations..."
-cargo run --release --bin migration
+cd migration && cargo run --release
+migration_status=$?
+cd ..
 
 # Check migration status
-if [ $? -eq 0 ]; then
+if [ $migration_status -eq 0 ]; then
     echo "✅ Database migrations completed successfully"
 else
     echo "❌ Database migrations failed"
