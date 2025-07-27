@@ -87,3 +87,24 @@ The project includes Docker Compose for PostgreSQL:
 - Database: `postgresql://freshapi_user:freshapi_password@localhost:5432/freshapi_db`
 - Adminer web interface: `http://localhost:8081`
 - All configuration in `.env` file
+
+## Railway Deployment
+
+The project is fully configured for Railway deployment:
+
+### Required Environment Variables:
+- `JWT_SECRET` - Secure production JWT secret (CRITICAL)
+- `DATABASE_URL` - Railway provides automatically
+- `ENVIRONMENT` - Set to "production" automatically
+
+### Optional Environment Variables:
+- `RESEND_API_KEY` - Email service integration
+- `CORS_ALLOWED_ORIGINS` - Frontend domain CORS configuration
+- Admin seeding variables (remove after initial setup)
+
+### Schema Synchronization:
+- Development: `/schema.graphql` and `/schema.json` endpoints available
+- Production: Schema endpoints automatically disabled for security
+- Frontend: Use GraphQL Codegen with development endpoints for TypeScript generation
+
+See `FRONTEND_INTEGRATION.md` for complete frontend integration guide.

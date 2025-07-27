@@ -1,0 +1,11 @@
+[phases.setup]
+nixPkgs = ["...", "postgresql"]
+
+[phases.build]
+cmds = ["cargo build --release"]
+
+[phases.start]
+cmd = "cargo run --release --bin freshapi"
+
+[variables]
+RUST_LOG = "info"

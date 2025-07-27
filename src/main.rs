@@ -98,6 +98,118 @@ async fn health() -> impl IntoResponse {
     "OK"
 }
 
+async fn graphql_schema(State(state): State<AppState>) -> impl IntoResponse {
+    // Only expose schema in development environment
+    let environment = env::var("ENVIRONMENT").unwrap_or_else(|_| "production".to_string());
+    
+    if environment != "development" {
+        return (StatusCode::NOT_FOUND, "Schema not available in production").into_response();
+    }
+    
+    info!("🔧 Schema endpoint accessed in development mode");
+    
+    // Auto-generated SDL from your actual schema - no hardcoding!
+    let sdl = state.schema.sdl();
+    
+    (
+        [(axum::http::header::CONTENT_TYPE, "application/graphql")],
+        sdl
+    ).into_response()
+}
+
+async fn graphql_introspection(State(state): State<AppState>) -> impl IntoResponse {
+    // Only allow introspection in development
+    let environment = env::var("ENVIRONMENT").unwrap_or_else(|_| "production".to_string());
+    
+    if environment != "development" {
+        return (StatusCode::NOT_FOUND, axum::Json(serde_json::json!({
+            "error": "Introspection disabled in production"
+        }))).into_response();
+    }
+    
+    info!("🔍 GraphQL introspection accessed in development mode");
+    
+    // Standard GraphQL introspection query - zero maintenance required!
+    let introspection_query = r#"
+        query IntrospectionQuery {
+            __schema {
+                queryType { name }
+                mutationType { name }
+                subscriptionType { name }
+                types {
+                    kind
+                    name
+                    description
+                    fields(includeDeprecated: true) {
+                        name
+                        description
+                        type {
+                            kind
+                            name
+                            ofType {
+                                kind
+                                name
+                                ofType {
+                                    kind
+                                    name
+                                }
+                            }
+                        }
+                        isDeprecated
+                        deprecationReason
+                    }
+                    inputFields {
+                        name
+                        description
+                        type {
+                            kind
+                            name
+                            ofType {
+                                kind
+                                name
+                            }
+                        }
+                        defaultValue
+                    }
+                    interfaces {
+                        kind
+                        name
+                    }
+                    enumValues(includeDeprecated: true) {
+                        name
+                        description
+                        isDeprecated
+                        deprecationReason
+                    }
+                    possibleTypes {
+                        kind
+                        name
+                    }
+                }
+                directives {
+                    name
+                    description
+                    locations
+                    args {
+                        name
+                        description
+                        type {
+                            kind
+                            name
+                        }
+                        defaultValue
+                    }
+                }
+            }
+        }
+    "#;
+
+    let request = async_graphql::Request::new(introspection_query);
+    let response = state.schema.execute(request).await;
+    
+    axum::Json(response).into_response()
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Load environment variables
@@ -172,6 +284,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/graphql", post(graphql_handler))
         .route("/playground", get(graphql_playground))
         .route("/health", get(health))
+        .route("/schema.graphql", get(graphql_schema))
+        .route("/schema.json", get(graphql_introspection))
         .layer(cors)
         .layer(middleware::from_fn_with_state(
             jwt_service,

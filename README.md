@@ -146,19 +146,40 @@ Key mutations and queries:
 
 ### Environment Variables
 
-See `.env` file for all configuration options:
+#### Required for Railway Deployment:
+- `DATABASE_URL`: PostgreSQL connection string (Railway provides automatically)
+- `JWT_SECRET`: Secure secret key for JWT signing (**CRITICAL - must set**)
+- `ENVIRONMENT`: Set to "production" (Railway sets automatically)
 
-- `DATABASE_URL`: PostgreSQL connection string
-- `JWT_SECRET`: Secret key for JWT signing
-- `RESEND_API_KEY`: Email service API key
-- `CORS_ALLOWED_ORIGINS`: Frontend origins for CORS
+#### Optional Configuration:
+- `RESEND_API_KEY`: Email service API key for email functionality
+- `CORS_ALLOWED_ORIGINS`: Frontend domains for CORS (e.g., `https://your-app.com`)
+- `HOST`: Server host (default: `0.0.0.0`)
+- `PORT`: Server port (default: `8080`)
+- `JWT_EXPIRATION_HOURS`: Token expiration time (default: `24`)
+
+#### Admin User Seeding (Initial Setup Only):
+- `ADMIN_EMAIL`: Admin user email
+- `ADMIN_PASSWORD`: Admin user password
+- `ADMIN_FIRST_NAME`: Admin first name (optional)
+- `ADMIN_LAST_NAME`: Admin last name (optional)
+
+**Note**: Remove admin credentials from environment after initial setup for security.
+
+### Railway Deployment
+
+1. **Connect Repository**: Link your GitHub repo to Railway
+2. **Set Environment Variables**: Configure required variables in Railway dashboard
+3. **Deploy**: Railway automatically builds and deploys your API
+4. **Database**: Railway provisions PostgreSQL and sets `DATABASE_URL`
 
 ### Security Considerations
 
-- Change default JWT secret in production
-- Use secure PostgreSQL credentials
-- Configure proper CORS origins
-- Enable HTTPS in production deployment
+- **CRITICAL**: Set secure `JWT_SECRET` in production (not the default)
+- Schema introspection automatically disabled in production
+- Admin credentials should be removed after initial setup
+- Configure proper CORS origins for your frontend domains
+- Railway automatically enables HTTPS
 
 ## Contributing
 
