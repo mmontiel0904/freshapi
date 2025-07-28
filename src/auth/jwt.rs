@@ -8,21 +8,23 @@ use crate::auth::types::Claims;
 pub struct JwtService {
     encoding_key: EncodingKey,
     decoding_key: DecodingKey,
-    expiration_hours: i64,
+    access_token_expiration_hours: i64,
+    refresh_token_expiration_days: i64,
 }
 
 impl JwtService {
-    pub fn new(secret: &str, expiration_hours: i64) -> Self {
+    pub fn new(secret: &str, access_token_expiration_hours: i64, refresh_token_expiration_days: i64) -> Self {
         Self {
             encoding_key: EncodingKey::from_secret(secret.as_ref()),
             decoding_key: DecodingKey::from_secret(secret.as_ref()),
-            expiration_hours,
+            access_token_expiration_hours,
+            refresh_token_expiration_days,
         }
     }
 
-    pub fn generate_token(&self, user_id: Uuid, email: &str) -> Result<String, jsonwebtoken::errors::Error> {
+    pub fn generate_access_token(&self, user_id: Uuid, email: &str) -> Result<String, jsonwebtoken::errors::Error> {
         let now = Utc::now();
-        let exp = now + Duration::hours(self.expiration_hours);
+        let exp = now + Duration::hours(self.access_token_expiration_hours);
         
         let claims = Claims {
             sub: user_id,
@@ -34,8 +36,21 @@ impl JwtService {
         encode(&Header::default(), &claims, &self.encoding_key)
     }
 
+    pub fn generate_refresh_token(&self) -> String {
+        Uuid::new_v4().to_string()
+    }
+
+    pub fn get_refresh_token_expiration(&self) -> chrono::DateTime<Utc> {
+        Utc::now() + Duration::days(self.refresh_token_expiration_days)
+    }
+
     pub fn verify_token(&self, token: &str) -> Result<Claims, jsonwebtoken::errors::Error> {
         let token_data = decode::<Claims>(token, &self.decoding_key, &Validation::default())?;
         Ok(token_data.claims)
+    }
+
+    // Legacy method for backward compatibility
+    pub fn generate_token(&self, user_id: Uuid, email: &str) -> Result<String, jsonwebtoken::errors::Error> {
+        self.generate_access_token(user_id, email)
     }
 }

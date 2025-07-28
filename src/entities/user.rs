@@ -19,6 +19,8 @@ pub struct Model {
     pub password_reset_expires_at: Option<DateTimeWithTimeZone>,
     pub created_at: DateTimeWithTimeZone,
     pub updated_at: DateTimeWithTimeZone,
+    pub refresh_token: Option<String>,
+    pub refresh_token_expires_at: Option<DateTimeWithTimeZone>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

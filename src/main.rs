@@ -265,7 +265,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 
     // Initialize services
-    let jwt_service = JwtService::new(&jwt_secret, jwt_expiration_hours);
+    let jwt_service = JwtService::new(&jwt_secret, jwt_expiration_hours, 30); // 30 days for refresh tokens
     let user_service = UserService::new(db.clone(), jwt_service.clone());
     let email_service = EmailService::new(&resend_api_key, "noreply@freshapi.dev".to_string());
 

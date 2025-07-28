@@ -44,7 +44,13 @@ pub struct LoginInput {
 #[derive(SimpleObject)]
 pub struct AuthPayload {
     pub user: User,
-    pub token: String,
+    pub access_token: String,
+    pub refresh_token: String,
+}
+
+#[derive(InputObject)]
+pub struct RefreshTokenInput {
+    pub refresh_token: String,
 }
 
 #[derive(SimpleObject)]
