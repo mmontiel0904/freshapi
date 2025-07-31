@@ -10,9 +10,10 @@ impl MutationRoot {
     async fn invite_user(&self, ctx: &Context<'_>, input: InviteUserInput) -> Result<Invitation> {
         let invitation_service = ctx.data::<InvitationService>()?;
         let auth_user = ctx.data::<crate::auth::AuthenticatedUser>()?;
+        let frontend_url = ctx.data::<String>()?;
 
         let invitation = invitation_service
-            .create_invitation(auth_user.id, &input.email, "https://your-frontend-url.com")
+            .create_invitation(auth_user.id, &input.email, frontend_url)
             .await
             .map_err(|e| Error::new(format!("Failed to create invitation: {}", e)))?;
 
@@ -123,8 +124,9 @@ impl MutationRoot {
 
         // Send password reset email
         if let Some(reset_token) = &user.password_reset_token {
+            let frontend_url = ctx.data::<String>()?;
             if let Err(e) = email_service
-                .send_password_reset_email(&user.email, reset_token, "https://your-frontend-url.com")
+                .send_password_reset_email(&user.email, reset_token, frontend_url)
                 .await
             {
                 eprintln!("Failed to send password reset email: {}", e);

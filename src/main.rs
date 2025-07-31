@@ -34,6 +34,7 @@ struct AppState {
     user_service: UserService,
     email_service: EmailService,
     invitation_service: InvitationService,
+    frontend_url: String,
 }
 
 async fn optional_auth_middleware(
@@ -81,7 +82,8 @@ async fn graphql_handler(
     request = request
         .data(state.user_service.clone())
         .data(state.email_service.clone())
-        .data(state.invitation_service.clone());
+        .data(state.invitation_service.clone())
+        .data(state.frontend_url.clone());
     
     state.schema.execute(request).await.into()
 }
@@ -258,8 +260,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             warn!("RESEND_API_KEY not set, email functionality will not work");
             "dummy-key".to_string()
         });
+    let from_email = env::var("FROM_EMAIL")
+        .unwrap_or_else(|_| "noreply@freshapi.dev".to_string());
     let cors_origins = env::var("CORS_ALLOWED_ORIGINS")
         .unwrap_or_else(|_| "http://localhost:3000,http://localhost:5173".to_string());
+    let frontend_url = env::var("FRONTEND_URL")
+        .unwrap_or_else(|_| "http://localhost:5173".to_string());
     let host = env::var("HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
     let port = env::var("PORT").unwrap_or_else(|_| "8080".to_string());
     
@@ -278,7 +284,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Initialize services
     let jwt_service = JwtService::new(&jwt_secret, jwt_expiration_hours, 30); // 30 days for refresh tokens
-    let email_service = EmailService::new(&resend_api_key, "noreply@freshapi.dev".to_string());
+    let email_service = EmailService::new(&resend_api_key, from_email);
     let user_service = UserService::new(db.clone(), jwt_service.clone());
     let invitation_service = InvitationService::new(db.clone(), email_service.clone());
 
@@ -293,6 +299,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         user_service,
         email_service,
         invitation_service,
+        frontend_url,
     };
 
     // Setup CORS
