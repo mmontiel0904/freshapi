@@ -2,4 +2,5 @@
 
 pub mod prelude;
 
+pub mod invitation;
 pub mod user;

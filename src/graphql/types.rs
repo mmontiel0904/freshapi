@@ -57,3 +57,52 @@ pub struct RefreshTokenInput {
 pub struct MessageResponse {
     pub message: String,
 }
+
+#[derive(SimpleObject)]
+pub struct Invitation {
+    pub id: Uuid,
+    pub email: String,
+    pub inviter_user_id: Uuid,
+    pub expires_at: DateTime<Utc>,
+    pub is_used: bool,
+    pub used_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+}
+
+impl From<crate::entities::invitation::Model> for Invitation {
+    fn from(invitation: crate::entities::invitation::Model) -> Self {
+        Self {
+            id: invitation.id,
+            email: invitation.email,
+            inviter_user_id: invitation.inviter_user_id,
+            expires_at: invitation.expires_at.into(),
+            is_used: invitation.is_used,
+            used_at: invitation.used_at.map(|dt| dt.into()),
+            created_at: invitation.created_at.into(),
+        }
+    }
+}
+
+#[derive(InputObject)]
+pub struct InviteUserInput {
+    pub email: String,
+}
+
+#[derive(InputObject)]
+pub struct AcceptInvitationInput {
+    pub invitation_token: String,
+    pub password: String,
+    pub first_name: Option<String>,
+    pub last_name: Option<String>,
+}
+
+#[derive(InputObject)]
+pub struct RequestPasswordResetInput {
+    pub email: String,
+}
+
+#[derive(InputObject)]
+pub struct ResetPasswordInput {
+    pub token: String,
+    pub new_password: String,
+}

@@ -21,9 +21,19 @@ pub struct Model {
     pub updated_at: DateTimeWithTimeZone,
     pub refresh_token: Option<String>,
     pub refresh_token_expires_at: Option<DateTimeWithTimeZone>,
+    pub invitation_token: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
-pub enum Relation {}
+pub enum Relation {
+    #[sea_orm(has_many = "super::invitation::Entity")]
+    Invitation,
+}
+
+impl Related<super::invitation::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Invitation.def()
+    }
+}
 
 impl ActiveModelBehavior for ActiveModel {}

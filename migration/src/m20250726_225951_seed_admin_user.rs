@@ -63,6 +63,9 @@ impl MigrationTrait for Migration {
             email_verification_expires_at: Set(None),
             password_reset_token: Set(None),
             password_reset_expires_at: Set(None),
+            refresh_token: Set(None),
+            refresh_token_expires_at: Set(None),
+            invitation_token: Set(None), // Admin doesn't need invitation
             created_at: Set(Utc::now().into()),
             updated_at: Set(Utc::now().into()),
         };

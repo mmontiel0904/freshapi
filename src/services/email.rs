@@ -44,6 +44,23 @@ impl EmailService {
         
         Ok(())
     }
+
+    pub async fn send_invitation_email(
+        &self,
+        to_email: &str,
+        invitation_token: &str,
+        base_url: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let invitation_url = format!("{}/accept-invitation?token={}", base_url, invitation_token);
+        
+        // For now, just log the email that would be sent
+        println!(
+            "📧 Would send invitation email to {}\nFrom: {}\nSubject: You're invited to join FreshAPI\nLink: {}",
+            to_email, self.from_email, invitation_url
+        );
+        
+        Ok(())
+    }
 }
 
 impl Clone for EmailService {

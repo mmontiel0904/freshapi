@@ -3,7 +3,7 @@ use std::env;
 use async_graphql_axum::{GraphQLRequest, GraphQLResponse};
 use axum::{
     extract::{Request, State},
-    http::{header::CONTENT_TYPE, HeaderValue, Method, StatusCode},
+    http::{header::{AUTHORIZATION, CONTENT_TYPE}, HeaderName, HeaderValue, Method, StatusCode},
     middleware::{self, Next},
     response::{Html, IntoResponse, Response},
     routing::{get, post},
@@ -12,7 +12,7 @@ use axum::{
 use dotenvy::dotenv;
 use sea_orm::{Database, DatabaseConnection};
 use tokio::net::TcpListener;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::CorsLayer;
 use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -22,9 +22,9 @@ mod graphql;
 mod services;
 
 
-use auth::{auth_middleware, AuthenticatedUser, JwtService};
+use auth::{AuthenticatedUser, JwtService};
 use graphql::{create_schema, ApiSchema};
-use services::{EmailService, UserService};
+use services::{EmailService, InvitationService, UserService};
 
 #[derive(Clone)]
 struct AppState {
@@ -33,6 +33,7 @@ struct AppState {
     jwt_service: JwtService,
     user_service: UserService,
     email_service: EmailService,
+    invitation_service: InvitationService,
 }
 
 async fn optional_auth_middleware(
@@ -40,20 +41,30 @@ async fn optional_auth_middleware(
     mut request: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    let path = request.uri().path();
-    let has_auth_header = request.headers().contains_key("authorization");
-    
-    if path == "/graphql" && has_auth_header {
-        // Apply authentication
-        match auth_middleware(State(jwt_service), request, next).await {
-            Ok(response) => Ok(response),
-            Err(status) => Err(status),
+    let auth_header = request
+        .headers()
+        .get("authorization")
+        .and_then(|header| header.to_str().ok())
+        .and_then(|header| header.strip_prefix("Bearer "));
+
+    if let Some(token) = auth_header {
+        // Try to authenticate
+        match jwt_service.verify_token(token) {
+            Ok(claims) => {
+                let user = AuthenticatedUser::from(claims);
+                request.extensions_mut().insert(Some(user));
+            }
+            Err(_) => {
+                // Invalid token - continue without auth
+                request.extensions_mut().insert(None::<AuthenticatedUser>);
+            }
         }
     } else {
-        // No authentication required
+        // No auth header - continue without auth
         request.extensions_mut().insert(None::<AuthenticatedUser>);
-        Ok(next.run(request).await)
     }
+
+    Ok(next.run(request).await)
 }
 
 async fn graphql_handler(
@@ -69,7 +80,8 @@ async fn graphql_handler(
     
     request = request
         .data(state.user_service.clone())
-        .data(state.email_service.clone());
+        .data(state.email_service.clone())
+        .data(state.invitation_service.clone());
     
     state.schema.execute(request).await.into()
 }
@@ -266,8 +278,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Initialize services
     let jwt_service = JwtService::new(&jwt_secret, jwt_expiration_hours, 30); // 30 days for refresh tokens
-    let user_service = UserService::new(db.clone(), jwt_service.clone());
     let email_service = EmailService::new(&resend_api_key, "noreply@freshapi.dev".to_string());
+    let user_service = UserService::new(db.clone(), jwt_service.clone());
+    let invitation_service = InvitationService::new(db.clone(), email_service.clone());
 
     // Create GraphQL schema
     let schema = create_schema();
@@ -279,6 +292,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         jwt_service: jwt_service.clone(),
         user_service,
         email_service,
+        invitation_service,
     };
 
     // Setup CORS
@@ -295,8 +309,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         
         CorsLayer::new()
             .allow_origin(origins)
-            .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
-            .allow_headers([CONTENT_TYPE])
+            .allow_methods([Method::GET, Method::POST, Method::OPTIONS, Method::PUT, Method::PATCH, Method::DELETE])
+            .allow_headers([
+                CONTENT_TYPE,
+                AUTHORIZATION,
+                HeaderName::from_static("x-apollo-tracing"),
+                HeaderName::from_static("apollo-require-preflight"),
+                HeaderName::from_static("x-requested-with"),
+            ])
+            .allow_credentials(true)
     };
 
     // Create router
