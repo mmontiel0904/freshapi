@@ -9,6 +9,7 @@ pub struct User {
     pub first_name: Option<String>,
     pub last_name: Option<String>,
     pub is_email_verified: bool,
+    pub role: Option<Role>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -21,6 +22,7 @@ impl From<crate::entities::user::Model> for User {
             first_name: user.first_name,
             last_name: user.last_name,
             is_email_verified: user.is_email_verified,
+            role: None, // Will be populated by resolver when needed
             created_at: user.created_at.into(),
             updated_at: user.updated_at.into(),
         }
@@ -105,4 +107,64 @@ pub struct RequestPasswordResetInput {
 pub struct ResetPasswordInput {
     pub token: String,
     pub new_password: String,
+}
+
+// RBAC Types
+#[derive(SimpleObject)]
+pub struct Role {
+    pub id: Uuid,
+    pub name: String,
+    pub description: Option<String>,
+    pub level: i32,
+    pub is_active: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl From<crate::entities::role::Model> for Role {
+    fn from(role: crate::entities::role::Model) -> Self {
+        Self {
+            id: role.id,
+            name: role.name,
+            description: role.description,
+            level: role.level,
+            is_active: role.is_active,
+            created_at: role.created_at.into(),
+            updated_at: role.updated_at.into(),
+        }
+    }
+}
+
+#[derive(SimpleObject)]
+pub struct Permission {
+    pub id: Uuid,
+    pub action: String,
+    pub resource_name: String,
+    pub description: Option<String>,
+    pub is_active: bool,
+}
+
+#[derive(SimpleObject)]
+pub struct UserWithRole {
+    pub id: Uuid,
+    pub email: String,
+    pub first_name: Option<String>,
+    pub last_name: Option<String>,
+    pub is_email_verified: bool,
+    pub role: Option<Role>,
+    pub permissions: Vec<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(InputObject)]
+pub struct AssignRoleInput {
+    pub user_id: Uuid,
+    pub role_id: Uuid,
+}
+
+#[derive(InputObject)]
+pub struct InviteUserWithRoleInput {
+    pub email: String,
+    pub role_id: Option<Uuid>,
 }

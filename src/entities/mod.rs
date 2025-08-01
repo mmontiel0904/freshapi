@@ -3,4 +3,9 @@
 pub mod prelude;
 
 pub mod invitation;
+pub mod permission;
+pub mod resource;
+pub mod role;
+pub mod role_permission;
 pub mod user;
+pub mod user_permission;

@@ -28,6 +28,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Environment-controlled GraphQL schema endpoints for development (/schema.graphql, /schema.json)
 - Zero-maintenance GraphQL introspection system for automatic frontend type generation
 - Production security with automatic schema endpoint blocking and introspection disabling
+- **Comprehensive Role-Based Access Control (RBAC) system**
+- **Multi-layered permission system with Users → Roles → Permissions → Resources architecture**
+- **Hierarchical role system with configurable permission levels (super_admin=100, admin=50, user=10)**
+- **Resource-based permissions for multi-application scalability**
+- **GraphQL authorization guards with field-level permission checking**
+- **Permission service with role inheritance and direct user permission overrides**
+- **Admin user management mutations (assignRole, removeUserRole)**
+- **Admin-only GraphQL queries (allUsers, allRoles, userPermissions)**
+- **Database entities for roles, permissions, resources, and junction tables**
+- **Automatic RBAC data seeding with default roles and permissions**
+- **User invitation system with role-based access control**
 
 ### Infrastructure
 - Docker Compose setup with PostgreSQL 16 and Adminer
@@ -53,6 +64,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Admin user seeding with secure password hashing and duplicate prevention
 - Production-safe admin seeding that skips creation when environment variables are not set
 - Reversible admin user migration with proper cleanup in rollback scenarios
+- **Enterprise-grade Role-Based Access Control (RBAC) with permission hierarchies**
+- **GraphQL field-level authorization with role and permission checking**
+- **Resource-based permission model for multi-tenant application support**
+- **Secure admin user management with role hierarchy enforcement**
+- **Permission inheritance system with user-specific override capabilities**
 
 ### Documentation
 - Complete README.md with setup instructions and API documentation
@@ -62,6 +78,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - FRONTEND_INTEGRATION.md with complete TypeScript/Vue.js setup guide
 - Railway deployment configuration and environment variable documentation
 - API schema synchronization guide for zero-maintenance frontend integration
+- **RBAC system architecture documentation with multi-app scalability guidance**
+- **Frontend testing guide for role-based access control features**
+- **Admin user management and permission system documentation**
+- **Updated CLAUDE.md with comprehensive RBAC system overview and security features**
 
 ---
 

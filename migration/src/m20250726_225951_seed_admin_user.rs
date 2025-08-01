@@ -66,6 +66,7 @@ impl MigrationTrait for Migration {
             refresh_token: Set(None),
             refresh_token_expires_at: Set(None),
             invitation_token: Set(None), // Admin doesn't need invitation
+            role_id: Set(None), // Will be set by RBAC seeding
             created_at: Set(Utc::now().into()),
             updated_at: Set(Utc::now().into()),
         };

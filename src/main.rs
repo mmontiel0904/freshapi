@@ -22,7 +22,7 @@ mod graphql;
 mod services;
 
 
-use auth::{AuthenticatedUser, JwtService};
+use auth::{AuthenticatedUser, JwtService, PermissionService};
 use graphql::{create_schema, ApiSchema};
 use services::{EmailService, InvitationService, UserService};
 
@@ -31,6 +31,7 @@ struct AppState {
     schema: ApiSchema,
     db: DatabaseConnection,
     jwt_service: JwtService,
+    permission_service: PermissionService,
     user_service: UserService,
     email_service: EmailService,
     invitation_service: InvitationService,
@@ -80,6 +81,7 @@ async fn graphql_handler(
     }
     
     request = request
+        .data(state.permission_service.clone())
         .data(state.user_service.clone())
         .data(state.email_service.clone())
         .data(state.invitation_service.clone())
@@ -284,6 +286,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Initialize services
     let jwt_service = JwtService::new(&jwt_secret, jwt_expiration_hours, 30); // 30 days for refresh tokens
+    let permission_service = PermissionService::new(db.clone());
     let email_service = EmailService::new(&resend_api_key, from_email);
     let user_service = UserService::new(db.clone(), jwt_service.clone());
     let invitation_service = InvitationService::new(db.clone(), email_service.clone());
@@ -296,6 +299,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         schema,
         db,
         jwt_service: jwt_service.clone(),
+        permission_service,
         user_service,
         email_service,
         invitation_service,

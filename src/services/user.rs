@@ -17,6 +17,10 @@ impl UserService {
         Self { db, jwt_service }
     }
 
+    pub fn get_db(&self) -> &DatabaseConnection {
+        &self.db
+    }
+
     pub async fn register_user_with_invitation(
         &self,
         email: &str,
@@ -52,6 +56,7 @@ impl UserService {
             refresh_token: Set(None),
             refresh_token_expires_at: Set(None),
             invitation_token: Set(Some(invitation_token.to_string())),
+            role_id: Set(None), // Will be set by admin later
             created_at: Set(Utc::now().into()),
             updated_at: Set(Utc::now().into()),
         };

@@ -51,17 +51,41 @@ docker-compose down
 
 ## Architecture Notes
 
-This is a fresh Rust project configured for building a GraphQL API with:
+This is a comprehensive Rust GraphQL API with enterprise-grade security features:
 
+### Core Framework
 - Async/await support via tokio runtime
 - GraphQL schema and resolvers through async-graphql
 - Web server capabilities with Axum
 - Database ORM with SeaORM and migration support
-- Authentication infrastructure with JWT and bcrypt
-- External service integrations (email via Resend, HTTP requests via reqwest)
+- JSON serialization with serde and UUID support
+
+### Authentication & Authorization (RBAC)
+- JWT-based authentication with refresh tokens
+- Multi-layered Role-Based Access Control (RBAC)
+- Hierarchical permission system (super_admin > admin > user)
+- Resource-based permissions for multi-app scalability
+- GraphQL field-level authorization guards
+- Invitation-only user registration system
+
+### RBAC System Design
+- **Users** → assigned to **Roles** → which have **Permissions** on **Resources**
+- **Resources**: Applications/modules (freshapi, future apps)
+- **Roles**: Hierarchical levels (super_admin=100, admin=50, user=10)
+- **Permissions**: Actions (read, write, admin, user_management, system_admin)
+- **Direct Permission Overrides**: User-specific grants/denials
+
+### Security Features
+- Password hashing with bcrypt
+- Email verification and password reset flows
+- Permission-based GraphQL query/mutation access
+- Production-ready JWT secret management
+- CORS configuration for frontend integration
+
+### External Integrations
+- Email service via Resend
+- HTTP client support via reqwest
 - Structured error handling with anyhow and thiserror
-- UUID support for identifiers
-- JSON serialization with serde
 
 ## Documentation Rules
 
@@ -100,7 +124,10 @@ The project is fully configured for Railway deployment:
 ### Optional Environment Variables:
 - `RESEND_API_KEY` - Email service integration
 - `CORS_ALLOWED_ORIGINS` - Frontend domain CORS configuration
-- Admin seeding variables (remove after initial setup)
+- `ADMIN_EMAIL` - Initial super admin user email (remove after setup)
+- `ADMIN_PASSWORD` - Initial super admin password (remove after setup)
+- `ADMIN_FIRST_NAME` - Admin first name (optional)
+- `ADMIN_LAST_NAME` - Admin last name (optional)
 
 ### Schema Synchronization:
 - Development: `/schema.graphql` and `/schema.json` endpoints available

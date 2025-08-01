@@ -22,17 +22,38 @@ pub struct Model {
     pub refresh_token: Option<String>,
     pub refresh_token_expires_at: Option<DateTimeWithTimeZone>,
     pub invitation_token: Option<String>,
+    pub role_id: Option<Uuid>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
     #[sea_orm(has_many = "super::invitation::Entity")]
     Invitation,
+    #[sea_orm(
+        belongs_to = "super::role::Entity",
+        from = "Column::RoleId",
+        to = "super::role::Column::Id"
+    )]
+    Role,
+    #[sea_orm(has_many = "super::user_permission::Entity")]
+    UserPermission,
 }
 
 impl Related<super::invitation::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Invitation.def()
+    }
+}
+
+impl Related<super::role::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Role.def()
+    }
+}
+
+impl Related<super::user_permission::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::UserPermission.def()
     }
 }
 

@@ -1,24 +1,28 @@
 # FreshAPI
 
-A modern GraphQL API for user management and authentication, designed to power personal tools and experimental projects.
+A modern GraphQL API with enterprise-grade Role-Based Access Control (RBAC), designed to power multi-application projects with comprehensive user management and security features.
 
 ## Overview
 
-FreshAPI provides a robust, scalable foundation for building personal projects with user management capabilities. Built with Rust, GraphQL, and PostgreSQL, it offers:
+FreshAPI provides a robust, scalable foundation for building multi-application projects with comprehensive security and user management. Built with Rust, GraphQL, and PostgreSQL, it offers:
 
-- **User Management**: Complete user lifecycle (registration, authentication, profile management)
-- **GraphQL API**: Modern, type-safe API with introspection support
-- **JWT Authentication**: Secure token-based authentication
+- **Role-Based Access Control (RBAC)**: Multi-layered permission system with hierarchical roles
+- **User Management**: Complete user lifecycle with invitation-based registration
+- **GraphQL API**: Modern, type-safe API with field-level authorization
+- **JWT Authentication**: Secure token-based authentication with refresh tokens  
+- **Multi-App Architecture**: Resource-based permissions for scaling across applications
+- **Admin Management**: Comprehensive user and role management capabilities
 - **Email Integration**: User verification and notifications via Resend
-- **Frontend Ready**: Designed for TypeScript/Vue.js integration
+- **Frontend Ready**: Designed for TypeScript/Vue.js with automatic type generation
 - **Docker Support**: Containerized PostgreSQL for local development
 
 ## Tech Stack
 
 - **Backend**: Rust with Axum web framework
 - **GraphQL**: async-graphql for schema definition and resolvers
-- **Database**: PostgreSQL with SeaORM
+- **Database**: PostgreSQL with SeaORM and comprehensive migrations
 - **Authentication**: JWT tokens with bcrypt password hashing
+- **Authorization**: Role-Based Access Control (RBAC) with hierarchical permissions
 - **Email**: Resend service integration
 - **Frontend Integration**: GraphQL introspection for TypeScript generation
 
@@ -114,33 +118,71 @@ cargo build --release  # Optimized build
 ```
 src/
 ├── main.rs           # Application entry point
-├── models/           # Database models
+├── entities/         # Database models (users, roles, permissions)
 ├── graphql/          # GraphQL schema and resolvers
-├── auth/             # Authentication logic
-├── email/            # Email service integration
+├── auth/             # Authentication & authorization (RBAC)
+├── services/         # Business logic services
 └── migration/        # Database migrations
 ```
+
+## RBAC System Architecture
+
+### Permission Model
+
+FreshAPI implements a sophisticated **Users → Roles → Permissions → Resources** architecture:
+
+- **Resources**: Applications/modules (e.g., `freshapi`, future apps)
+- **Permissions**: Actions on resources (`read`, `write`, `admin`, `user_management`, `system_admin`)
+- **Roles**: Permission collections with hierarchy levels (`super_admin=100`, `admin=50`, `user=10`)
+- **Users**: Assigned to roles + optional direct permission overrides
+
+### Default Roles
+
+- **super_admin** (Level 100): Full system access, all permissions
+- **admin** (Level 50): User management, admin operations  
+- **user** (Level 10): Basic read/write access
+
+### Authorization Features
+
+- **Hierarchical Permissions**: Higher role levels inherit lower permissions
+- **Resource-Based**: Scale permissions across multiple applications
+- **GraphQL Guards**: Field-level authorization checks
+- **Direct Overrides**: Grant/deny specific user permissions
+- **Admin Management**: Role assignment and user management
 
 ## User Management Features
 
 ### Core Functionality
 
-- **User Registration**: Email-based registration with verification
-- **Authentication**: JWT-based login/logout
+- **Invitation-Based Registration**: Secure user onboarding system
+- **Authentication**: JWT-based login/logout with refresh tokens
+- **Role Management**: Comprehensive RBAC with admin controls
 - **Profile Management**: User profile CRUD operations
 - **Password Management**: Secure password reset flow
 - **Email Verification**: Account activation and notifications
 
-### API Endpoints
+### GraphQL API
 
 GraphQL endpoint: `POST /graphql`
 
-Key mutations and queries:
-- `registerUser`: Create new user account
-- `loginUser`: Authenticate and receive JWT
-- `updateProfile`: Modify user information
-- `resetPassword`: Initiate password reset
-- `verifyEmail`: Confirm email address
+#### Public Mutations
+- `login`: Authenticate and receive JWT tokens
+- `acceptInvitation`: Register via invitation token
+- `refreshToken`: Get new access token
+- `requestPasswordReset`: Initiate password reset
+- `resetPassword`: Complete password reset
+
+#### Authenticated Queries
+- `me`: Get current user profile
+- `myInvitations`: List user's sent invitations
+
+#### Admin-Only Operations (require admin/user_management permissions)
+- `allUsers`: List all users with roles and permissions
+- `allRoles`: List available roles
+- `assignRole`: Assign role to user
+- `removeUserRole`: Remove user's role
+- `inviteUser`: Send user invitation
+- `userPermissions`: Check user's permissions
 
 ## Configuration
 

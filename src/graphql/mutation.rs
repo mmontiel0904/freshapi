@@ -1,7 +1,11 @@
 use async_graphql::*;
+use sea_orm::{EntityTrait, ColumnTrait, QueryFilter, ActiveModelTrait, Set};
+use chrono::Utc;
 
-use crate::graphql::types::{AcceptInvitationInput, AuthPayload, Invitation, InviteUserInput, LoginInput, MessageResponse, RefreshTokenInput, RegisterInput, RequestPasswordResetInput, ResetPasswordInput, User};
+use crate::auth::{require_admin, require_user_management};
+use crate::graphql::types::{AcceptInvitationInput, AuthPayload, Invitation, InviteUserInput, LoginInput, MessageResponse, RefreshTokenInput, RegisterInput, RequestPasswordResetInput, ResetPasswordInput, User, AssignRoleInput};
 use crate::services::{EmailService, InvitationService, UserService};
+use crate::entities::prelude::*;
 
 pub struct MutationRoot;
 
@@ -149,5 +153,63 @@ impl MutationRoot {
         Ok(MessageResponse {
             message: "Password has been reset successfully".to_string(),
         })
+    }
+
+    // Admin-only mutations
+    async fn assign_role(&self, ctx: &Context<'_>, input: AssignRoleInput) -> Result<User> {
+        require_user_management(ctx, "freshapi").await?;
+        
+        let user_service = ctx.data::<UserService>()?;
+        
+        // Get user
+        let user = crate::entities::user::Entity::find_by_id(input.user_id)
+            .one(user_service.get_db())
+            .await
+            .map_err(|e| Error::new(format!("Database error: {}", e)))?
+            .ok_or_else(|| Error::new("User not found"))?;
+
+        // Verify role exists
+        let _role = crate::entities::role::Entity::find_by_id(input.role_id)
+            .one(user_service.get_db())
+            .await
+            .map_err(|e| Error::new(format!("Database error: {}", e)))?
+            .ok_or_else(|| Error::new("Role not found"))?;
+
+        // Update user role
+        let mut user_active: crate::entities::user::ActiveModel = user.into();
+        user_active.role_id = Set(Some(input.role_id));
+        user_active.updated_at = Set(Utc::now().into());
+
+        let updated_user = user_active
+            .update(user_service.get_db())
+            .await
+            .map_err(|e| Error::new(format!("Failed to assign role: {}", e)))?;
+
+        Ok(updated_user.into())
+    }
+
+    async fn remove_user_role(&self, ctx: &Context<'_>, user_id: uuid::Uuid) -> Result<User> {
+        require_user_management(ctx, "freshapi").await?;
+        
+        let user_service = ctx.data::<UserService>()?;
+        
+        // Get user
+        let user = crate::entities::user::Entity::find_by_id(user_id)
+            .one(user_service.get_db())
+            .await
+            .map_err(|e| Error::new(format!("Database error: {}", e)))?
+            .ok_or_else(|| Error::new("User not found"))?;
+
+        // Remove role
+        let mut user_active: crate::entities::user::ActiveModel = user.into();
+        user_active.role_id = Set(None);
+        user_active.updated_at = Set(Utc::now().into());
+
+        let updated_user = user_active
+            .update(user_service.get_db())
+            .await
+            .map_err(|e| Error::new(format!("Failed to remove role: {}", e)))?;
+
+        Ok(updated_user.into())
     }
 }
