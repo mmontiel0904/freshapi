@@ -23,7 +23,7 @@ mod services;
 
 
 use auth::{AuthenticatedUser, JwtService, PermissionService};
-use graphql::{create_schema, ApiSchema};
+use graphql::{create_schema, ApiSchema, DataLoaderContext};
 use services::{EmailService, InvitationService, UserService};
 
 #[derive(Clone)]
@@ -32,6 +32,7 @@ struct AppState {
     db: DatabaseConnection,
     jwt_service: JwtService,
     permission_service: PermissionService,
+    dataloader_context: DataLoaderContext,
     user_service: UserService,
     email_service: EmailService,
     invitation_service: InvitationService,
@@ -82,6 +83,7 @@ async fn graphql_handler(
     
     request = request
         .data(state.permission_service.clone())
+        .data(state.dataloader_context.clone())
         .data(state.user_service.clone())
         .data(state.email_service.clone())
         .data(state.invitation_service.clone())
@@ -294,12 +296,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create GraphQL schema
     let schema = create_schema();
 
+    // Create DataLoader context for optimized permission loading
+    let dataloader_context = DataLoaderContext::new(db.clone());
+
     // Application state
     let app_state = AppState {
         schema,
         db,
         jwt_service: jwt_service.clone(),
         permission_service,
+        dataloader_context,
         user_service,
         email_service,
         invitation_service,

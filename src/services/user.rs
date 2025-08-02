@@ -30,11 +30,15 @@ impl UserService {
         invitation_token: &str,
     ) -> Result<(user::Model, String, String), Box<dyn std::error::Error>> {
         use crate::entities::{prelude::*, invitation};
+        use sea_orm::TransactionTrait;
+        
+        // Use transaction to ensure atomicity - OPTIMIZED
+        let tx = self.db.begin().await?;
         
         // Check if user already exists
         if let Some(_) = User::find()
             .filter(user::Column::Email.eq(email))
-            .one(&self.db)
+            .one(&tx)
             .await?
         {
             return Err("User with this email already exists".into());
@@ -43,9 +47,18 @@ impl UserService {
         // Get invitation to extract role_id if present
         let invitation = Invitation::find()
             .filter(invitation::Column::Token.eq(invitation_token))
-            .one(&self.db)
+            .one(&tx)
             .await?
             .ok_or("Invalid invitation token")?;
+
+        // Validate invitation hasn't been used and hasn't expired
+        if invitation.is_used {
+            return Err("Invitation has already been used".into());
+        }
+        
+        if invitation.expires_at < Utc::now() {
+            return Err("Invitation has expired".into());
+        }
 
         // Hash password
         let password_hash = hash(password, DEFAULT_COST)?;
@@ -70,7 +83,14 @@ impl UserService {
             updated_at: Set(Utc::now().into()),
         };
 
-        let user = new_user.insert(&self.db).await?;
+        let user = new_user.insert(&tx).await?;
+
+        // Mark invitation as used - within same transaction
+        let mut invitation_active: invitation::ActiveModel = invitation.into();
+        invitation_active.is_used = Set(true);
+        invitation_active.used_at = Set(Some(Utc::now().into()));
+        invitation_active.updated_at = Set(Utc::now().into());
+        invitation_active.update(&tx).await?;
 
         // Generate tokens for immediate login
         let access_token = self.jwt_service.generate_access_token(user.id, &user.email)?;
@@ -83,7 +103,10 @@ impl UserService {
         user_active.refresh_token_expires_at = Set(Some(refresh_expires.into()));
         user_active.updated_at = Set(Utc::now().into());
 
-        let updated_user = user_active.update(&self.db).await?;
+        let updated_user = user_active.update(&tx).await?;
+
+        // Commit transaction - all operations succeed or fail together
+        tx.commit().await?;
 
         Ok((updated_user, access_token, refresh_token))
     }

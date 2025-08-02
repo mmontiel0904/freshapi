@@ -3,6 +3,7 @@ use sea_orm::{EntityTrait, ColumnTrait, QueryFilter};
 
 use crate::auth::{AuthenticatedUser, PermissionService, require_admin};
 use crate::graphql::types::{Invitation, User, Role, UserWithRole};
+use crate::graphql::DataLoaderContext;
 use crate::services::{InvitationService, UserService};
 
 pub struct QueryRoot;
@@ -41,12 +42,12 @@ impl QueryRoot {
         Ok(invitations.into_iter().map(|inv| inv.into()).collect())
     }
 
-    // Admin-only queries
+    // Admin-only queries - OPTIMIZED with DataLoader (automatic batching + caching)
     async fn all_users(&self, ctx: &Context<'_>) -> Result<Vec<UserWithRole>> {
         require_admin(ctx, "freshapi").await?;
         
         let user_service = ctx.data::<UserService>()?;
-        let permission_service = ctx.data::<PermissionService>()?;
+        let dataloader = ctx.data::<DataLoaderContext>()?;
         
         // Get all users with their roles
         let users_with_roles = crate::entities::user::Entity::find()
@@ -55,14 +56,16 @@ impl QueryRoot {
             .await
             .map_err(|e| Error::new(format!("Failed to fetch users: {}", e)))?;
 
+        // Use DataLoader for automatic batching and caching
         let mut result = Vec::new();
         
         for (user, role_opt) in users_with_roles {
-            let permissions = permission_service
-                .get_user_permissions(user.id, "freshapi")
+            // DataLoader automatically batches all these calls into single database query
+            let permissions = dataloader
+                .load_user_permissions(user.id)
                 .await
                 .map_err(|e| Error::new(format!("Failed to get permissions: {}", e)))?;
-
+                
             result.push(UserWithRole {
                 id: user.id,
                 email: user.email,
@@ -110,7 +113,7 @@ impl QueryRoot {
         require_admin(ctx, "freshapi").await?;
         
         let user_service = ctx.data::<UserService>()?;
-        let permission_service = ctx.data::<PermissionService>()?;
+        let dataloader = ctx.data::<DataLoaderContext>()?;
         
         // Get user with role
         let (user, role_opt) = crate::entities::user::Entity::find_by_id(user_id)
@@ -120,8 +123,9 @@ impl QueryRoot {
             .map_err(|e| Error::new(format!("Failed to fetch user: {}", e)))?
             .ok_or_else(|| Error::new("User not found"))?;
 
-        let permissions = permission_service
-            .get_user_permissions(user.id, "freshapi")
+        // Use DataLoader for caching (beneficial if called multiple times)
+        let permissions = dataloader
+            .load_user_permissions(user.id)
             .await
             .map_err(|e| Error::new(format!("Failed to get permissions: {}", e)))?;
 
@@ -142,7 +146,7 @@ impl QueryRoot {
         require_admin(ctx, "freshapi").await?;
         
         let user_service = ctx.data::<UserService>()?;
-        let permission_service = ctx.data::<PermissionService>()?;
+        let dataloader = ctx.data::<DataLoaderContext>()?;
         
         // Find role by name
         let role = crate::entities::role::Entity::find()
@@ -161,14 +165,16 @@ impl QueryRoot {
             .await
             .map_err(|e| Error::new(format!("Failed to fetch users: {}", e)))?;
 
+        // Use DataLoader for automatic batching and caching
         let mut result = Vec::new();
         
         for (user, role_opt) in users_with_roles {
-            let permissions = permission_service
-                .get_user_permissions(user.id, "freshapi")
+            // DataLoader automatically batches all these calls into single database query
+            let permissions = dataloader
+                .load_user_permissions(user.id)
                 .await
                 .map_err(|e| Error::new(format!("Failed to get permissions: {}", e)))?;
-
+                
             result.push(UserWithRole {
                 id: user.id,
                 email: user.email,
