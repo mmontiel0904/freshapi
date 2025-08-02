@@ -307,4 +307,132 @@ impl UserService {
         let user = User::find_by_id(user_id).one(&self.db).await?;
         Ok(user)
     }
+
+    pub async fn change_password(
+        &self,
+        user_id: Uuid,
+        current_password: &str,
+        new_password: &str,
+    ) -> Result<user::Model, Box<dyn std::error::Error>> {
+        // Find user by ID
+        let user = User::find_by_id(user_id)
+            .one(&self.db)
+            .await?
+            .ok_or("User not found")?;
+
+        // Verify current password
+        if !verify(current_password, &user.password_hash)? {
+            return Err("Current password is incorrect".into());
+        }
+
+        // Hash new password
+        let new_password_hash = hash(new_password, DEFAULT_COST)?;
+
+        // Update password
+        let mut user_active: user::ActiveModel = user.clone().into();
+        user_active.password_hash = Set(new_password_hash);
+        user_active.updated_at = Set(Utc::now().into());
+
+        // Revoke all refresh tokens for security
+        user_active.refresh_token = Set(None);
+        user_active.refresh_token_expires_at = Set(None);
+
+        let updated_user = user_active.update(&self.db).await?;
+        Ok(updated_user)
+    }
+
+    pub async fn admin_reset_user_password(
+        &self,
+        user_id: Uuid,
+    ) -> Result<user::Model, Box<dyn std::error::Error>> {
+        // Find user by ID
+        let user = User::find_by_id(user_id)
+            .one(&self.db)
+            .await?
+            .ok_or("User not found")?;
+
+        // Generate a random password
+        let new_password = Uuid::new_v4().to_string();
+        let password_hash = hash(&new_password, DEFAULT_COST)?;
+
+        // Update user's password
+        let mut user_active: user::ActiveModel = user.into();
+        user_active.password_hash = Set(password_hash);
+        user_active.updated_at = Set(Utc::now().into());
+
+        let updated_user = user_active.update(&self.db).await?;
+
+        println!("🔄 Admin reset password for user: {} | New password: {}", updated_user.email, new_password);
+
+        Ok(updated_user)
+    }
+
+    pub async fn get_user_permissions(
+        &self,
+        user_id: Uuid,
+    ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+        use crate::entities::{permission, resource, role_permission, user_permission};
+        use sea_orm::{JoinType, QuerySelect, RelationTrait};
+
+        let mut all_permissions = Vec::new();
+
+        // Get permissions through role
+        if let Ok(Some(user)) = User::find_by_id(user_id).one(&self.db).await {
+            if let Some(role_id) = user.role_id {
+                let role_perms = role_permission::Entity::find()
+                    .filter(role_permission::Column::RoleId.eq(role_id))
+                    .join(JoinType::InnerJoin, role_permission::Relation::Permission.def())
+                    .join(JoinType::InnerJoin, permission::Relation::Resource.def())
+                    .column_as(permission::Column::Action, "action")
+                    .column_as(resource::Column::Name, "resource_name")
+                    .into_tuple::<(String, String)>()
+                    .all(&self.db)
+                    .await?;
+
+                for (action, resource_name) in role_perms {
+                    all_permissions.push(format!("{}:{}", action, resource_name));
+                }
+            }
+
+            // Get direct user permissions
+            let user_perms = user_permission::Entity::find()
+                .filter(user_permission::Column::UserId.eq(user_id))
+                .join(JoinType::InnerJoin, user_permission::Relation::Permission.def())
+                .join(JoinType::InnerJoin, permission::Relation::Resource.def())
+                .column_as(permission::Column::Action, "action")
+                .column_as(resource::Column::Name, "resource_name")
+                .into_tuple::<(String, String)>()
+                .all(&self.db)
+                .await?;
+
+            for (action, resource_name) in user_perms {
+                all_permissions.push(format!("{}:{}", action, resource_name));
+            }
+        }
+
+        // Deduplicate permissions
+        all_permissions.sort();
+        all_permissions.dedup();
+
+        Ok(all_permissions)
+    }
+
+    pub async fn get_user_role(
+        &self,
+        user_id: Uuid,
+    ) -> Result<Option<crate::entities::role::Model>, Box<dyn std::error::Error>> {
+        let user = User::find_by_id(user_id)
+            .one(&self.db)
+            .await?
+            .ok_or("User not found")?;
+
+        if let Some(role_id) = user.role_id {
+            let role = crate::entities::role::Entity::find_by_id(role_id)
+                .one(&self.db)
+                .await?;
+            Ok(role)
+        } else {
+            Ok(None)
+        }
+    }
 }

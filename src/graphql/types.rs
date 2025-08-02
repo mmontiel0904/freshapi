@@ -1,15 +1,18 @@
 use async_graphql::*;
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
+use sea_orm::EntityTrait;
 
 #[derive(SimpleObject)]
+#[graphql(complex)]
 pub struct User {
     pub id: Uuid,
     pub email: String,
     pub first_name: Option<String>,
     pub last_name: Option<String>,
     pub is_email_verified: bool,
-    pub role: Option<Role>,
+    #[graphql(skip)]
+    pub role_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -22,10 +25,37 @@ impl From<crate::entities::user::Model> for User {
             first_name: user.first_name,
             last_name: user.last_name,
             is_email_verified: user.is_email_verified,
-            role: None, // Will be populated by resolver when needed
+            role_id: user.role_id,
             created_at: user.created_at.into(),
             updated_at: user.updated_at.into(),
         }
+    }
+}
+
+#[ComplexObject]
+impl User {
+    async fn role(&self, ctx: &Context<'_>) -> Result<Option<Role>> {
+        if let Some(role_id) = self.role_id {
+            let user_service = ctx.data::<crate::services::UserService>()?;
+            
+            let role = crate::entities::role::Entity::find_by_id(role_id)
+                .one(user_service.get_db())
+                .await
+                .map_err(|e| Error::new(format!("Failed to fetch role: {}", e)))?;
+                
+            Ok(role.map(|r| r.into()))
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn permissions(&self, ctx: &Context<'_>) -> Result<Vec<String>> {
+        let user_service = ctx.data::<crate::services::UserService>()?;
+        
+        user_service
+            .get_user_permissions(self.id)
+            .await
+            .map_err(|e| Error::new(format!("Failed to fetch permissions: {}", e)))
     }
 }
 
@@ -109,6 +139,17 @@ pub struct RequestPasswordResetInput {
 pub struct ResetPasswordInput {
     pub token: String,
     pub new_password: String,
+}
+
+#[derive(InputObject)]
+pub struct ChangePasswordInput {
+    pub current_password: String,
+    pub new_password: String,
+}
+
+#[derive(InputObject)]
+pub struct AdminResetUserPasswordInput {
+    pub user_id: Uuid,
 }
 
 // RBAC Types

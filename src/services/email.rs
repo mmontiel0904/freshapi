@@ -92,6 +92,35 @@ impl EmailService {
         ).await
     }
 
+    pub async fn send_admin_password_reset_email(
+        &self,
+        to_email: &str,
+        reset_token: &str,
+        base_url: &str,
+        admin_name: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let reset_url = format!("{}/reset-password?token={}", base_url, reset_token);
+        
+        let html_content = format!(
+            r#"
+            <h2>Password Reset Requested</h2>
+            <p>An administrator ({}) has initiated a password reset for your account.</p>
+            <p>Click the link below to set a new password:</p>
+            <p><a href="{}">Reset Password</a></p>
+            <p>This link will expire in 24 hours.</p>
+            <p>If you have any concerns about this reset, please contact your administrator.</p>
+            "#,
+            admin_name,
+            reset_url
+        );
+
+        self.send_email(
+            to_email,
+            "Password Reset - Admin Request",
+            &html_content,
+        ).await
+    }
+
     async fn send_email(
         &self,
         to_email: &str,

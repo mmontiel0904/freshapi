@@ -3,7 +3,7 @@ use sea_orm::{EntityTrait, ActiveModelTrait, Set};
 use chrono::Utc;
 
 use crate::auth::require_user_management;
-use crate::graphql::types::{AcceptInvitationInput, AuthPayload, Invitation, InviteUserInput, InviteUserWithRoleInput, LoginInput, MessageResponse, RefreshTokenInput, RegisterInput, RequestPasswordResetInput, ResetPasswordInput, User, AssignRoleInput};
+use crate::graphql::types::{AcceptInvitationInput, AdminResetUserPasswordInput, AuthPayload, ChangePasswordInput, Invitation, InviteUserInput, InviteUserWithRoleInput, LoginInput, MessageResponse, RefreshTokenInput, RegisterInput, RequestPasswordResetInput, ResetPasswordInput, User, AssignRoleInput};
 use crate::services::{EmailService, InvitationService, UserService};
 
 pub struct MutationRoot;
@@ -228,5 +228,67 @@ impl MutationRoot {
             .map_err(|e| Error::new(format!("Failed to remove role: {}", e)))?;
 
         Ok(updated_user.into())
+    }
+
+    async fn change_password(&self, ctx: &Context<'_>, input: ChangePasswordInput) -> Result<MessageResponse> {
+        let user_service = ctx.data::<UserService>()?;
+        let auth_user = ctx.data::<crate::auth::AuthenticatedUser>()?;
+
+        user_service
+            .change_password(auth_user.id, &input.current_password, &input.new_password)
+            .await
+            .map_err(|e| Error::new(format!("Password change failed: {}", e)))?;
+
+        Ok(MessageResponse {
+            message: "Password changed successfully. You will need to login again.".to_string(),
+        })
+    }
+
+    async fn admin_reset_user_password(&self, ctx: &Context<'_>, input: AdminResetUserPasswordInput) -> Result<MessageResponse> {
+        require_user_management(ctx, "freshapi").await?;
+        
+        let user_service = ctx.data::<UserService>()?;
+        let email_service = ctx.data::<EmailService>()?;
+        let auth_user = ctx.data::<crate::auth::AuthenticatedUser>()?;
+        let frontend_url = ctx.data::<String>()?;
+
+        // Get the user to reset
+        let target_user = user_service
+            .find_user_by_id(input.user_id)
+            .await
+            .map_err(|e| Error::new(format!("Failed to find user: {}", e)))?
+            .ok_or_else(|| Error::new("User not found"))?;
+
+        // Get admin user details for email
+        let admin_user = user_service
+            .find_user_by_id(auth_user.id)
+            .await
+            .map_err(|e| Error::new(format!("Failed to find admin user: {}", e)))?
+            .ok_or_else(|| Error::new("Admin user not found"))?;
+
+        let admin_name = format!("{} {}",
+            admin_user.first_name.unwrap_or_else(|| "Admin".to_string()),
+            admin_user.last_name.unwrap_or_else(|| "User".to_string())
+        ).trim().to_string();
+
+        // Generate reset token
+        let updated_user = user_service
+            .admin_reset_user_password(input.user_id)
+            .await
+            .map_err(|e| Error::new(format!("Failed to generate reset token: {}", e)))?;
+
+        // Send password reset email
+        if let Some(reset_token) = &updated_user.password_reset_token {
+            if let Err(e) = email_service
+                .send_admin_password_reset_email(&target_user.email, reset_token, frontend_url, &admin_name)
+                .await
+            {
+                eprintln!("Failed to send admin password reset email: {}", e);
+            }
+        }
+
+        Ok(MessageResponse {
+            message: format!("Password reset email sent to {}", target_user.email),
+        })
     }
 }
