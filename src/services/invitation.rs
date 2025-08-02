@@ -16,10 +16,42 @@ impl InvitationService {
         Self { db, email_service }
     }
 
+    pub async fn create_invitation_with_role(
+        &self,
+        inviter_user_id: Uuid,
+        email: &str,
+        role_id: Option<Uuid>,
+        base_url: &str,
+    ) -> Result<invitation::Model, Box<dyn std::error::Error>> {
+        // Validate role if provided
+        if let Some(role_id) = role_id {
+            let role_exists = crate::entities::role::Entity::find_by_id(role_id)
+                .one(&self.db)
+                .await?
+                .is_some();
+            
+            if !role_exists {
+                return Err("Invalid role specified".into());
+            }
+        }
+
+        self.create_invitation_internal(inviter_user_id, email, role_id, base_url).await
+    }
+
     pub async fn create_invitation(
         &self,
         inviter_user_id: Uuid,
         email: &str,
+        base_url: &str,
+    ) -> Result<invitation::Model, Box<dyn std::error::Error>> {
+        self.create_invitation_internal(inviter_user_id, email, None, base_url).await
+    }
+
+    async fn create_invitation_internal(
+        &self,
+        inviter_user_id: Uuid,
+        email: &str,
+        role_id: Option<Uuid>,
         base_url: &str,
     ) -> Result<invitation::Model, Box<dyn std::error::Error>> {
         // Check if user already exists
@@ -32,7 +64,7 @@ impl InvitationService {
         }
 
         // Check if invitation already exists and is still valid
-        if let Some(existing_invitation) = Invitation::find()
+        if let Some(_existing_invitation) = Invitation::find()
             .filter(invitation::Column::Email.eq(email))
             .filter(invitation::Column::IsUsed.eq(false))
             .filter(invitation::Column::ExpiresAt.gt(Utc::now()))
@@ -55,6 +87,7 @@ impl InvitationService {
             expires_at: Set(expires_at.into()),
             is_used: Set(false),
             used_at: Set(None),
+            role_id: Set(role_id),
             created_at: Set(Utc::now().into()),
             updated_at: Set(Utc::now().into()),
         };

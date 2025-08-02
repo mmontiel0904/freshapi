@@ -68,6 +68,7 @@ pub struct Invitation {
     pub expires_at: DateTime<Utc>,
     pub is_used: bool,
     pub used_at: Option<DateTime<Utc>>,
+    pub role: Option<Role>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -80,6 +81,7 @@ impl From<crate::entities::invitation::Model> for Invitation {
             expires_at: invitation.expires_at.into(),
             is_used: invitation.is_used,
             used_at: invitation.used_at.map(|dt| dt.into()),
+            role: None, // Will be populated by resolver when needed
             created_at: invitation.created_at.into(),
         }
     }

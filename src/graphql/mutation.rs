@@ -1,23 +1,40 @@
 use async_graphql::*;
-use sea_orm::{EntityTrait, ColumnTrait, QueryFilter, ActiveModelTrait, Set};
+use sea_orm::{EntityTrait, ActiveModelTrait, Set};
 use chrono::Utc;
 
-use crate::auth::{require_admin, require_user_management};
-use crate::graphql::types::{AcceptInvitationInput, AuthPayload, Invitation, InviteUserInput, LoginInput, MessageResponse, RefreshTokenInput, RegisterInput, RequestPasswordResetInput, ResetPasswordInput, User, AssignRoleInput};
+use crate::auth::require_user_management;
+use crate::graphql::types::{AcceptInvitationInput, AuthPayload, Invitation, InviteUserInput, InviteUserWithRoleInput, LoginInput, MessageResponse, RefreshTokenInput, RegisterInput, RequestPasswordResetInput, ResetPasswordInput, User, AssignRoleInput};
 use crate::services::{EmailService, InvitationService, UserService};
-use crate::entities::prelude::*;
 
 pub struct MutationRoot;
 
 #[Object]
 impl MutationRoot {
     async fn invite_user(&self, ctx: &Context<'_>, input: InviteUserInput) -> Result<Invitation> {
+        use crate::auth::require_permission;
+        require_permission(ctx, "freshapi", "invite_users").await?;
+        
         let invitation_service = ctx.data::<InvitationService>()?;
         let auth_user = ctx.data::<crate::auth::AuthenticatedUser>()?;
         let frontend_url = ctx.data::<String>()?;
 
         let invitation = invitation_service
             .create_invitation(auth_user.id, &input.email, frontend_url)
+            .await
+            .map_err(|e| Error::new(format!("Failed to create invitation: {}", e)))?;
+
+        Ok(invitation.into())
+    }
+
+    async fn invite_user_with_role(&self, ctx: &Context<'_>, input: InviteUserWithRoleInput) -> Result<Invitation> {
+        require_user_management(ctx, "freshapi").await?;
+        
+        let invitation_service = ctx.data::<InvitationService>()?;
+        let auth_user = ctx.data::<crate::auth::AuthenticatedUser>()?;
+        let frontend_url = ctx.data::<String>()?;
+
+        let invitation = invitation_service
+            .create_invitation_with_role(auth_user.id, &input.email, input.role_id, frontend_url)
             .await
             .map_err(|e| Error::new(format!("Failed to create invitation: {}", e)))?;
 
@@ -53,7 +70,7 @@ impl MutationRoot {
         })
     }
 
-    async fn register(&self, ctx: &Context<'_>, input: RegisterInput) -> Result<User> {
+    async fn register(&self, _ctx: &Context<'_>, _input: RegisterInput) -> Result<User> {
         return Err(Error::new(
             "Public registration is disabled. Please use an invitation link to register."
         ));

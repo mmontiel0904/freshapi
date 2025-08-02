@@ -7,6 +7,7 @@ mod m20250728_123504_create_invitations_table;
 mod m20250728_123616_add_invitation_token_to_user;
 mod m20250801_000001_create_rbac_tables;
 mod m20250801_000002_seed_rbac_data;
+mod m20250801_000003_add_role_to_invitations;
 
 pub struct Migrator;
 
@@ -21,6 +22,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20250728_123616_add_invitation_token_to_user::Migration),
             Box::new(m20250801_000001_create_rbac_tables::Migration),
             Box::new(m20250801_000002_seed_rbac_data::Migration),
+            Box::new(m20250801_000003_add_role_to_invitations::Migration),
         ]
     }
 }

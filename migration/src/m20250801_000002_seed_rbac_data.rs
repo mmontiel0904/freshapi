@@ -1,4 +1,4 @@
-use sea_orm_migration::{prelude::*, schema::*};
+use sea_orm_migration::prelude::*;
 use sea_orm::{ActiveModelTrait, Set, EntityTrait, ColumnTrait, QueryFilter};
 use chrono::Utc;
 use uuid::Uuid;
@@ -161,7 +161,6 @@ impl MigrationTrait for Migration {
         let db = manager.get_connection();
 
         // Clear role assignments from users
-        use sea_orm::{UpdateMany, Set as SeaSet};
         let _result = freshapi::entities::user::Entity::update_many()
             .col_expr(freshapi::entities::user::Column::RoleId, Expr::value(Value::from(Option::<Uuid>::None)))
             .exec(db)

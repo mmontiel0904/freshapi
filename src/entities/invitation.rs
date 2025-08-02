@@ -15,6 +15,7 @@ pub struct Model {
     pub expires_at: DateTimeWithTimeZone,
     pub is_used: bool,
     pub used_at: Option<DateTimeWithTimeZone>,
+    pub role_id: Option<Uuid>,
     pub created_at: DateTimeWithTimeZone,
     pub updated_at: DateTimeWithTimeZone,
 }
@@ -29,11 +30,23 @@ pub enum Relation {
         on_delete = "Cascade"
     )]
     User,
+    #[sea_orm(
+        belongs_to = "super::role::Entity",
+        from = "Column::RoleId",
+        to = "super::role::Column::Id"
+    )]
+    Role,
 }
 
 impl Related<super::user::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::User.def()
+    }
+}
+
+impl Related<super::role::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Role.def()
     }
 }
 

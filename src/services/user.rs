@@ -29,6 +29,8 @@ impl UserService {
         last_name: Option<String>,
         invitation_token: &str,
     ) -> Result<(user::Model, String, String), Box<dyn std::error::Error>> {
+        use crate::entities::{prelude::*, invitation};
+        
         // Check if user already exists
         if let Some(_) = User::find()
             .filter(user::Column::Email.eq(email))
@@ -37,6 +39,13 @@ impl UserService {
         {
             return Err("User with this email already exists".into());
         }
+
+        // Get invitation to extract role_id if present
+        let invitation = Invitation::find()
+            .filter(invitation::Column::Token.eq(invitation_token))
+            .one(&self.db)
+            .await?
+            .ok_or("Invalid invitation token")?;
 
         // Hash password
         let password_hash = hash(password, DEFAULT_COST)?;
@@ -56,7 +65,7 @@ impl UserService {
             refresh_token: Set(None),
             refresh_token_expires_at: Set(None),
             invitation_token: Set(Some(invitation_token.to_string())),
-            role_id: Set(None), // Will be set by admin later
+            role_id: Set(invitation.role_id), // Assign role from invitation
             created_at: Set(Utc::now().into()),
             updated_at: Set(Utc::now().into()),
         };
@@ -81,10 +90,10 @@ impl UserService {
 
     pub async fn register_user(
         &self,
-        email: &str,
-        password: &str,
-        first_name: Option<String>,
-        last_name: Option<String>,
+        _email: &str,
+        _password: &str,
+        _first_name: Option<String>,
+        _last_name: Option<String>,
     ) -> Result<user::Model, Box<dyn std::error::Error>> {
         return Err("Public registration is disabled. Use invitation-based registration.".into());
     }
