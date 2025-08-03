@@ -4,53 +4,55 @@ use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq, Serialize, Deserialize)]
-#[sea_orm(table_name = "invitation")]
+#[sea_orm(table_name = "task")]
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
     #[serde(skip_deserializing)]
     pub id: Uuid,
-    #[sea_orm(unique)]
-    pub email: String,
-    pub inviter_user_id: Uuid,
-    #[sea_orm(unique)]
-    pub token: String,
-    pub expires_at: DateTimeWithTimeZone,
-    pub is_used: bool,
-    pub used_at: Option<DateTimeWithTimeZone>,
+    pub name: String,
+    #[sea_orm(column_type = "Text", nullable)]
+    pub description: Option<String>,
+    pub project_id: Uuid,
+    pub assignee_id: Option<Uuid>,
+    pub creator_id: Uuid,
+    pub status: String,
+    pub priority: String,
+    pub due_date: Option<DateTimeWithTimeZone>,
     pub created_at: DateTimeWithTimeZone,
     pub updated_at: DateTimeWithTimeZone,
-    pub role_id: Option<Uuid>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
     #[sea_orm(
-        belongs_to = "super::role::Entity",
-        from = "Column::RoleId",
-        to = "super::role::Column::Id",
+        belongs_to = "super::project::Entity",
+        from = "Column::ProjectId",
+        to = "super::project::Column::Id",
+        on_update = "NoAction",
+        on_delete = "Cascade"
+    )]
+    Project,
+    #[sea_orm(
+        belongs_to = "super::user::Entity",
+        from = "Column::AssigneeId",
+        to = "super::user::Column::Id",
         on_update = "NoAction",
         on_delete = "SetNull"
     )]
-    Role,
+    User2,
     #[sea_orm(
         belongs_to = "super::user::Entity",
-        from = "Column::InviterUserId",
+        from = "Column::CreatorId",
         to = "super::user::Column::Id",
         on_update = "NoAction",
         on_delete = "Cascade"
     )]
-    User,
+    User1,
 }
 
-impl Related<super::role::Entity> for Entity {
+impl Related<super::project::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::Role.def()
-    }
-}
-
-impl Related<super::user::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::User.def()
+        Relation::Project.def()
     }
 }
 

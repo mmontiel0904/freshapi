@@ -2,9 +2,9 @@ use async_graphql::*;
 use sea_orm::{EntityTrait, ColumnTrait, QueryFilter};
 
 use crate::auth::{AuthenticatedUser, PermissionService, require_admin};
-use crate::graphql::types::{Invitation, User, Role, UserWithRole};
+use crate::graphql::types::{Invitation, User, Role, UserWithRole, Project, Task, TaskStats};
 use crate::graphql::DataLoaderContext;
-use crate::services::{InvitationService, UserService};
+use crate::services::{InvitationService, UserService, ProjectService, TaskService, TaskStatus};
 
 pub struct QueryRoot;
 
@@ -189,5 +189,124 @@ impl QueryRoot {
         }
 
         Ok(result)
+    }
+
+    // Project queries
+    async fn my_projects(&self, ctx: &Context<'_>, limit: Option<i32>, offset: Option<i32>) -> Result<Vec<Project>> {
+        use crate::auth::require_permission;
+        require_permission(ctx, "task_system", "read").await?;
+        
+        let project_service = ctx.data::<ProjectService>()?;
+        let authenticated_user = ctx.data::<AuthenticatedUser>()?;
+        
+        let projects = project_service
+            .get_user_projects(
+                authenticated_user.id,
+                limit.map(|l| l.max(0) as u64),
+                offset.map(|o| o.max(0) as u64),
+            )
+            .await
+            .map_err(|e| Error::new(format!("Failed to fetch projects: {}", e)))?;
+            
+        Ok(projects.into_iter().map(|p| p.into()).collect())
+    }
+
+    async fn project(&self, ctx: &Context<'_>, project_id: uuid::Uuid) -> Result<Option<Project>> {
+        use crate::auth::require_permission;
+        require_permission(ctx, "task_system", "read").await?;
+        
+        let project_service = ctx.data::<ProjectService>()?;
+        let authenticated_user = ctx.data::<AuthenticatedUser>()?;
+        
+        let project = project_service
+            .get_project(project_id, authenticated_user.id)
+            .await
+            .map_err(|e| Error::new(format!("Failed to fetch project: {}", e)))?;
+            
+        Ok(project.map(|p| p.into()))
+    }
+
+    // Task queries
+    async fn task(&self, ctx: &Context<'_>, task_id: uuid::Uuid) -> Result<Option<Task>> {
+        use crate::auth::require_permission;
+        require_permission(ctx, "task_system", "read").await?;
+        
+        let task_service = ctx.data::<TaskService>()?;
+        let authenticated_user = ctx.data::<AuthenticatedUser>()?;
+        
+        let task = task_service
+            .get_task(task_id, authenticated_user.id)
+            .await
+            .map_err(|e| Error::new(format!("Failed to fetch task: {}", e)))?;
+            
+        Ok(task.map(|t| t.into()))
+    }
+
+    async fn my_assigned_tasks(&self, ctx: &Context<'_>, status: Option<String>, limit: Option<i32>, offset: Option<i32>) -> Result<Vec<Task>> {
+        use crate::auth::require_permission;
+        require_permission(ctx, "task_system", "read").await?;
+        
+        let task_service = ctx.data::<TaskService>()?;
+        let authenticated_user = ctx.data::<AuthenticatedUser>()?;
+        
+        let status_filter = status.and_then(|s| TaskStatus::from_str(&s));
+        
+        let tasks = task_service
+            .get_user_assigned_tasks(
+                authenticated_user.id,
+                status_filter,
+                limit.map(|l| l.max(0) as u64),
+                offset.map(|o| o.max(0) as u64),
+            )
+            .await
+            .map_err(|e| Error::new(format!("Failed to fetch assigned tasks: {}", e)))?;
+            
+        Ok(tasks.into_iter().map(|t| t.into()).collect())
+    }
+
+    async fn project_tasks(&self, ctx: &Context<'_>, project_id: uuid::Uuid, status: Option<String>, assignee_id: Option<uuid::Uuid>, limit: Option<i32>, offset: Option<i32>) -> Result<Vec<Task>> {
+        use crate::auth::require_permission;
+        require_permission(ctx, "task_system", "read").await?;
+        
+        let task_service = ctx.data::<TaskService>()?;
+        let authenticated_user = ctx.data::<AuthenticatedUser>()?;
+        
+        let status_filter = status.and_then(|s| TaskStatus::from_str(&s));
+        
+        let tasks = task_service
+            .get_project_tasks(
+                project_id,
+                authenticated_user.id,
+                status_filter,
+                assignee_id,
+                limit.map(|l| l.max(0) as u64),
+                offset.map(|o| o.max(0) as u64),
+            )
+            .await
+            .map_err(|e| Error::new(format!("Failed to fetch project tasks: {}", e)))?;
+            
+        Ok(tasks.into_iter().map(|t| t.into()).collect())
+    }
+
+    async fn project_task_stats(&self, ctx: &Context<'_>, project_id: uuid::Uuid) -> Result<TaskStats> {
+        use crate::auth::require_permission;
+        require_permission(ctx, "task_system", "read").await?;
+        
+        let task_service = ctx.data::<TaskService>()?;
+        let authenticated_user = ctx.data::<AuthenticatedUser>()?;
+        
+        let stats = task_service
+            .get_project_task_stats(project_id, authenticated_user.id)
+            .await
+            .map_err(|e| Error::new(format!("Failed to fetch task stats: {}", e)))?;
+            
+        Ok(TaskStats {
+            total: stats.total,
+            todo: stats.todo,
+            in_progress: stats.in_progress,
+            completed: stats.completed,
+            cancelled: stats.cancelled,
+            overdue: stats.overdue,
+        })
     }
 }

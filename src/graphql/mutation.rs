@@ -3,8 +3,8 @@ use sea_orm::{EntityTrait, ActiveModelTrait, Set};
 use chrono::Utc;
 
 use crate::auth::require_user_management;
-use crate::graphql::types::{AcceptInvitationInput, AdminResetUserPasswordInput, AuthPayload, ChangePasswordInput, Invitation, InviteUserInput, InviteUserWithRoleInput, LoginInput, MessageResponse, RefreshTokenInput, RegisterInput, RequestPasswordResetInput, ResetPasswordInput, User, AssignRoleInput};
-use crate::services::{EmailService, InvitationService, UserService};
+use crate::graphql::types::{AcceptInvitationInput, AdminResetUserPasswordInput, AuthPayload, ChangePasswordInput, Invitation, InviteUserInput, InviteUserWithRoleInput, LoginInput, MessageResponse, RefreshTokenInput, RegisterInput, RequestPasswordResetInput, ResetPasswordInput, User, AssignRoleInput, Project, Task, CreateProjectInput, UpdateProjectInput, AddProjectMemberInput, UpdateMemberRoleInput, RemoveProjectMemberInput, CreateTaskInput, UpdateTaskInput, AssignTaskInput};
+use crate::services::{EmailService, InvitationService, UserService, ProjectService, TaskService, ProjectRole, TaskStatus, TaskPriority};
 
 pub struct MutationRoot;
 
@@ -289,6 +289,195 @@ impl MutationRoot {
 
         Ok(MessageResponse {
             message: format!("Password reset email sent to {}", target_user.email),
+        })
+    }
+
+    // Project mutations
+    async fn create_project(&self, ctx: &Context<'_>, input: CreateProjectInput) -> Result<Project> {
+        use crate::auth::require_permission;
+        require_permission(ctx, "task_system", "create").await?;
+        
+        let project_service = ctx.data::<ProjectService>()?;
+        let authenticated_user = ctx.data::<crate::auth::AuthenticatedUser>()?;
+        
+        let project = project_service
+            .create_project(authenticated_user.id, &input.name, input.description)
+            .await
+            .map_err(|e| Error::new(format!("Failed to create project: {}", e)))?;
+            
+        Ok(project.into())
+    }
+
+    async fn update_project(&self, ctx: &Context<'_>, input: UpdateProjectInput) -> Result<Project> {
+        use crate::auth::require_permission;
+        require_permission(ctx, "task_system", "write").await?;
+        
+        let project_service = ctx.data::<ProjectService>()?;
+        let authenticated_user = ctx.data::<crate::auth::AuthenticatedUser>()?;
+        
+        let project = project_service
+            .update_project(input.project_id, authenticated_user.id, input.name, input.description)
+            .await
+            .map_err(|e| Error::new(format!("Failed to update project: {}", e)))?;
+            
+        Ok(project.into())
+    }
+
+    async fn delete_project(&self, ctx: &Context<'_>, project_id: uuid::Uuid) -> Result<MessageResponse> {
+        use crate::auth::require_permission;
+        require_permission(ctx, "task_system", "admin").await?;
+        
+        let project_service = ctx.data::<ProjectService>()?;
+        let authenticated_user = ctx.data::<crate::auth::AuthenticatedUser>()?;
+        
+        project_service
+            .delete_project(project_id, authenticated_user.id)
+            .await
+            .map_err(|e| Error::new(format!("Failed to delete project: {}", e)))?;
+            
+        Ok(MessageResponse {
+            message: "Project deleted successfully".to_string(),
+        })
+    }
+
+    async fn add_project_member(&self, ctx: &Context<'_>, input: AddProjectMemberInput) -> Result<MessageResponse> {
+        use crate::auth::require_permission;
+        require_permission(ctx, "task_system", "user_management").await?;
+        
+        let project_service = ctx.data::<ProjectService>()?;
+        let authenticated_user = ctx.data::<crate::auth::AuthenticatedUser>()?;
+        
+        let role = ProjectRole::from_str(&input.role)
+            .ok_or_else(|| Error::new("Invalid project role"))?;
+        
+        project_service
+            .add_project_member(input.project_id, authenticated_user.id, input.user_id, role)
+            .await
+            .map_err(|e| Error::new(format!("Failed to add project member: {}", e)))?;
+            
+        Ok(MessageResponse {
+            message: "Project member added successfully".to_string(),
+        })
+    }
+
+    async fn update_member_role(&self, ctx: &Context<'_>, input: UpdateMemberRoleInput) -> Result<MessageResponse> {
+        use crate::auth::require_permission;
+        require_permission(ctx, "task_system", "user_management").await?;
+        
+        let project_service = ctx.data::<ProjectService>()?;
+        let authenticated_user = ctx.data::<crate::auth::AuthenticatedUser>()?;
+        
+        let role = ProjectRole::from_str(&input.role)
+            .ok_or_else(|| Error::new("Invalid project role"))?;
+        
+        project_service
+            .update_member_role(input.project_id, authenticated_user.id, input.user_id, role)
+            .await
+            .map_err(|e| Error::new(format!("Failed to update member role: {}", e)))?;
+            
+        Ok(MessageResponse {
+            message: "Member role updated successfully".to_string(),
+        })
+    }
+
+    async fn remove_project_member(&self, ctx: &Context<'_>, input: RemoveProjectMemberInput) -> Result<MessageResponse> {
+        use crate::auth::require_permission;
+        require_permission(ctx, "task_system", "user_management").await?;
+        
+        let project_service = ctx.data::<ProjectService>()?;
+        let authenticated_user = ctx.data::<crate::auth::AuthenticatedUser>()?;
+        
+        project_service
+            .remove_project_member(input.project_id, authenticated_user.id, input.user_id)
+            .await
+            .map_err(|e| Error::new(format!("Failed to remove project member: {}", e)))?;
+            
+        Ok(MessageResponse {
+            message: "Project member removed successfully".to_string(),
+        })
+    }
+
+    // Task mutations
+    async fn create_task(&self, ctx: &Context<'_>, input: CreateTaskInput) -> Result<Task> {
+        use crate::auth::require_permission;
+        require_permission(ctx, "task_system", "create").await?;
+        
+        let task_service = ctx.data::<TaskService>()?;
+        let authenticated_user = ctx.data::<crate::auth::AuthenticatedUser>()?;
+        
+        let priority = input.priority.and_then(|p| TaskPriority::from_str(&p));
+        
+        let task = task_service
+            .create_task(
+                input.project_id,
+                authenticated_user.id,
+                &input.name,
+                input.description,
+                input.assignee_id,
+                priority,
+                input.due_date,
+            )
+            .await
+            .map_err(|e| Error::new(format!("Failed to create task: {}", e)))?;
+            
+        Ok(task.into())
+    }
+
+    async fn update_task(&self, ctx: &Context<'_>, input: UpdateTaskInput) -> Result<Task> {
+        use crate::auth::require_permission;
+        require_permission(ctx, "task_system", "write").await?;
+        
+        let task_service = ctx.data::<TaskService>()?;
+        let authenticated_user = ctx.data::<crate::auth::AuthenticatedUser>()?;
+        
+        let status = input.status.and_then(|s| TaskStatus::from_str(&s));
+        let priority = input.priority.and_then(|p| TaskPriority::from_str(&p));
+        
+        let task = task_service
+            .update_task(
+                input.task_id,
+                authenticated_user.id,
+                input.name,
+                input.description,
+                status,
+                priority,
+                input.due_date,
+            )
+            .await
+            .map_err(|e| Error::new(format!("Failed to update task: {}", e)))?;
+            
+        Ok(task.into())
+    }
+
+    async fn assign_task(&self, ctx: &Context<'_>, input: AssignTaskInput) -> Result<Task> {
+        use crate::auth::require_permission;
+        require_permission(ctx, "task_system", "user_management").await?;
+        
+        let task_service = ctx.data::<TaskService>()?;
+        let authenticated_user = ctx.data::<crate::auth::AuthenticatedUser>()?;
+        
+        let task = task_service
+            .assign_task(input.task_id, authenticated_user.id, input.assignee_id)
+            .await
+            .map_err(|e| Error::new(format!("Failed to assign task: {}", e)))?;
+            
+        Ok(task.into())
+    }
+
+    async fn delete_task(&self, ctx: &Context<'_>, task_id: uuid::Uuid) -> Result<MessageResponse> {
+        use crate::auth::require_permission;
+        require_permission(ctx, "task_system", "admin").await?;
+        
+        let task_service = ctx.data::<TaskService>()?;
+        let authenticated_user = ctx.data::<crate::auth::AuthenticatedUser>()?;
+        
+        task_service
+            .delete_task(task_id, authenticated_user.id)
+            .await
+            .map_err(|e| Error::new(format!("Failed to delete task: {}", e)))?;
+            
+        Ok(MessageResponse {
+            message: "Task deleted successfully".to_string(),
         })
     }
 }

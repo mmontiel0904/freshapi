@@ -2,4 +2,13 @@
 
 pub mod prelude;
 
+pub mod invitation;
+pub mod permission;
+pub mod project;
+pub mod project_member;
+pub mod resource;
+pub mod role;
+pub mod role_permission;
+pub mod task;
 pub mod user;
+pub mod user_permission;

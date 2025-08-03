@@ -24,7 +24,7 @@ mod services;
 
 use auth::{AuthenticatedUser, JwtService, PermissionService};
 use graphql::{create_schema, ApiSchema, DataLoaderContext};
-use services::{EmailService, InvitationService, UserService};
+use services::{EmailService, InvitationService, UserService, ProjectService, TaskService};
 
 #[derive(Clone)]
 struct AppState {
@@ -36,6 +36,8 @@ struct AppState {
     user_service: UserService,
     email_service: EmailService,
     invitation_service: InvitationService,
+    project_service: ProjectService,
+    task_service: TaskService,
     frontend_url: String,
 }
 
@@ -87,6 +89,8 @@ async fn graphql_handler(
         .data(state.user_service.clone())
         .data(state.email_service.clone())
         .data(state.invitation_service.clone())
+        .data(state.project_service.clone())
+        .data(state.task_service.clone())
         .data(state.frontend_url.clone());
     
     state.schema.execute(request).await.into()
@@ -292,6 +296,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let email_service = EmailService::new(&resend_api_key, from_email);
     let user_service = UserService::new(db.clone(), jwt_service.clone());
     let invitation_service = InvitationService::new(db.clone(), email_service.clone());
+    let project_service = ProjectService::new(db.clone());
+    let task_service = TaskService::new(db.clone(), project_service.clone());
 
     // Create GraphQL schema
     let schema = create_schema();
@@ -309,6 +315,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         user_service,
         email_service,
         invitation_service,
+        project_service,
+        task_service,
         frontend_url,
     };
 

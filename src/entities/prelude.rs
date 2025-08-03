@@ -2,8 +2,11 @@
 
 pub use super::invitation::Entity as Invitation;
 pub use super::permission::Entity as Permission;
+pub use super::project::Entity as Project;
+pub use super::project_member::Entity as ProjectMember;
 pub use super::resource::Entity as Resource;
 pub use super::role::Entity as Role;
 pub use super::role_permission::Entity as RolePermission;
+pub use super::task::Entity as Task;
 pub use super::user::Entity as User;
 pub use super::user_permission::Entity as UserPermission;

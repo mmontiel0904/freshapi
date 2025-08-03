@@ -211,3 +211,239 @@ pub struct InviteUserWithRoleInput {
     pub email: String,
     pub role_id: Option<Uuid>,
 }
+
+// Project Types
+#[derive(SimpleObject)]
+#[graphql(complex)]
+pub struct Project {
+    pub id: Uuid,
+    pub name: String,
+    pub description: Option<String>,
+    pub owner_id: Uuid,
+    pub is_active: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl From<crate::entities::project::Model> for Project {
+    fn from(project: crate::entities::project::Model) -> Self {
+        Self {
+            id: project.id,
+            name: project.name,
+            description: project.description,
+            owner_id: project.owner_id,
+            is_active: project.is_active,
+            created_at: project.created_at.into(),
+            updated_at: project.updated_at.into(),
+        }
+    }
+}
+
+#[ComplexObject]
+impl Project {
+    async fn owner(&self, ctx: &Context<'_>) -> Result<Option<User>> {
+        let user_service = ctx.data::<crate::services::UserService>()?;
+        
+        let user = crate::entities::user::Entity::find_by_id(self.owner_id)
+            .one(user_service.get_db())
+            .await
+            .map_err(|e| Error::new(format!("Failed to fetch owner: {}", e)))?;
+            
+        Ok(user.map(|u| u.into()))
+    }
+
+    async fn members(&self, ctx: &Context<'_>) -> Result<Vec<ProjectMember>> {
+        let project_service = ctx.data::<crate::services::ProjectService>()?;
+        let current_user = ctx.data::<crate::entities::user::Model>()?;
+        
+        let members = project_service
+            .get_project_members(self.id, current_user.id)
+            .await
+            .map_err(|e| Error::new(format!("Failed to fetch members: {}", e)))?;
+            
+        Ok(members.into_iter().map(|(member, user)| ProjectMember {
+            id: member.id,
+            project_id: member.project_id,
+            user_id: member.user_id,
+            role: member.role,
+            joined_at: member.joined_at.into(),
+            user: user.into(),
+        }).collect())
+    }
+
+    async fn tasks(&self, ctx: &Context<'_>, status: Option<String>, assignee_id: Option<Uuid>, limit: Option<i32>, offset: Option<i32>) -> Result<Vec<Task>> {
+        let task_service = ctx.data::<crate::services::TaskService>()?;
+        let current_user = ctx.data::<crate::entities::user::Model>()?;
+        
+        let status_filter = status.and_then(|s| crate::services::TaskStatus::from_str(&s));
+        
+        let tasks = task_service
+            .get_project_tasks(
+                self.id,
+                current_user.id,
+                status_filter,
+                assignee_id,
+                limit.map(|l| l.max(0) as u64),
+                offset.map(|o| o.max(0) as u64),
+            )
+            .await
+            .map_err(|e| Error::new(format!("Failed to fetch tasks: {}", e)))?;
+            
+        Ok(tasks.into_iter().map(|t| t.into()).collect())
+    }
+}
+
+#[derive(SimpleObject)]
+pub struct ProjectMember {
+    pub id: Uuid,
+    pub project_id: Uuid,
+    pub user_id: Uuid,
+    pub role: String,
+    pub joined_at: DateTime<Utc>,
+    pub user: User,
+}
+
+#[derive(InputObject)]
+pub struct CreateProjectInput {
+    pub name: String,
+    pub description: Option<String>,
+}
+
+#[derive(InputObject)]
+pub struct UpdateProjectInput {
+    pub project_id: Uuid,
+    pub name: Option<String>,
+    pub description: Option<Option<String>>,
+}
+
+#[derive(InputObject)]
+pub struct AddProjectMemberInput {
+    pub project_id: Uuid,
+    pub user_id: Uuid,
+    pub role: String,
+}
+
+#[derive(InputObject)]
+pub struct UpdateMemberRoleInput {
+    pub project_id: Uuid,
+    pub user_id: Uuid,
+    pub role: String,
+}
+
+#[derive(InputObject)]
+pub struct RemoveProjectMemberInput {
+    pub project_id: Uuid,
+    pub user_id: Uuid,
+}
+
+// Task Types
+#[derive(SimpleObject)]
+#[graphql(complex)]
+pub struct Task {
+    pub id: Uuid,
+    pub name: String,
+    pub description: Option<String>,
+    pub project_id: Uuid,
+    pub assignee_id: Option<Uuid>,
+    pub creator_id: Uuid,
+    pub status: String,
+    pub priority: String,
+    pub due_date: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl From<crate::entities::task::Model> for Task {
+    fn from(task: crate::entities::task::Model) -> Self {
+        Self {
+            id: task.id,
+            name: task.name,
+            description: task.description,
+            project_id: task.project_id,
+            assignee_id: task.assignee_id,
+            creator_id: task.creator_id,
+            status: task.status,
+            priority: task.priority,
+            due_date: task.due_date.map(|dt| dt.into()),
+            created_at: task.created_at.into(),
+            updated_at: task.updated_at.into(),
+        }
+    }
+}
+
+#[ComplexObject]
+impl Task {
+    async fn project(&self, ctx: &Context<'_>) -> Result<Option<Project>> {
+        let project_service = ctx.data::<crate::services::ProjectService>()?;
+        let current_user = ctx.data::<crate::entities::user::Model>()?;
+        
+        let project = project_service
+            .get_project(self.project_id, current_user.id)
+            .await
+            .map_err(|e| Error::new(format!("Failed to fetch project: {}", e)))?;
+            
+        Ok(project.map(|p| p.into()))
+    }
+
+    async fn assignee(&self, ctx: &Context<'_>) -> Result<Option<User>> {
+        if let Some(assignee_id) = self.assignee_id {
+            let user_service = ctx.data::<crate::services::UserService>()?;
+            
+            let user = crate::entities::user::Entity::find_by_id(assignee_id)
+                .one(user_service.get_db())
+                .await
+                .map_err(|e| Error::new(format!("Failed to fetch assignee: {}", e)))?;
+                
+            Ok(user.map(|u| u.into()))
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn creator(&self, ctx: &Context<'_>) -> Result<Option<User>> {
+        let user_service = ctx.data::<crate::services::UserService>()?;
+        
+        let user = crate::entities::user::Entity::find_by_id(self.creator_id)
+            .one(user_service.get_db())
+            .await
+            .map_err(|e| Error::new(format!("Failed to fetch creator: {}", e)))?;
+            
+        Ok(user.map(|u| u.into()))
+    }
+}
+
+#[derive(InputObject)]
+pub struct CreateTaskInput {
+    pub project_id: Uuid,
+    pub name: String,
+    pub description: Option<String>,
+    pub assignee_id: Option<Uuid>,
+    pub priority: Option<String>,
+    pub due_date: Option<DateTime<Utc>>,
+}
+
+#[derive(InputObject)]
+pub struct UpdateTaskInput {
+    pub task_id: Uuid,
+    pub name: Option<String>,
+    pub description: Option<Option<String>>,
+    pub status: Option<String>,
+    pub priority: Option<String>,
+    pub due_date: Option<Option<DateTime<Utc>>>,
+}
+
+#[derive(InputObject)]
+pub struct AssignTaskInput {
+    pub task_id: Uuid,
+    pub assignee_id: Option<Uuid>,
+}
+
+#[derive(SimpleObject)]
+pub struct TaskStats {
+    pub total: u32,
+    pub todo: u32,
+    pub in_progress: u32,
+    pub completed: u32,
+    pub cancelled: u32,
+    pub overdue: u32,
+}

@@ -4,37 +4,30 @@ use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq, Serialize, Deserialize)]
-#[sea_orm(table_name = "invitation")]
+#[sea_orm(table_name = "project_member")]
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
     #[serde(skip_deserializing)]
     pub id: Uuid,
-    #[sea_orm(unique)]
-    pub email: String,
-    pub inviter_user_id: Uuid,
-    #[sea_orm(unique)]
-    pub token: String,
-    pub expires_at: DateTimeWithTimeZone,
-    pub is_used: bool,
-    pub used_at: Option<DateTimeWithTimeZone>,
-    pub created_at: DateTimeWithTimeZone,
-    pub updated_at: DateTimeWithTimeZone,
-    pub role_id: Option<Uuid>,
+    pub project_id: Uuid,
+    pub user_id: Uuid,
+    pub role: String,
+    pub joined_at: DateTimeWithTimeZone,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
     #[sea_orm(
-        belongs_to = "super::role::Entity",
-        from = "Column::RoleId",
-        to = "super::role::Column::Id",
+        belongs_to = "super::project::Entity",
+        from = "Column::ProjectId",
+        to = "super::project::Column::Id",
         on_update = "NoAction",
-        on_delete = "SetNull"
+        on_delete = "Cascade"
     )]
-    Role,
+    Project,
     #[sea_orm(
         belongs_to = "super::user::Entity",
-        from = "Column::InviterUserId",
+        from = "Column::UserId",
         to = "super::user::Column::Id",
         on_update = "NoAction",
         on_delete = "Cascade"
@@ -42,9 +35,9 @@ pub enum Relation {
     User,
 }
 
-impl Related<super::role::Entity> for Entity {
+impl Related<super::project::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::Role.def()
+        Relation::Project.def()
     }
 }
 
