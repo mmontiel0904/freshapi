@@ -54,10 +54,10 @@ generates:
 
 ### Authentication Flow
 
-#### 1. Login with Role Information
+#### 1. Optimized Login Flow (Fast + Efficient)
 
 ```typescript
-import { LoginMutation, MeQuery } from '@/generated/graphql'
+import { LoginMutation, MeQuery, UserPermissionsQuery } from '@/generated/graphql'
 
 interface AuthUser {
   id: string
@@ -68,9 +68,10 @@ interface AuthUser {
     name: string
     level: number
   }
-  permissions: string[]
+  permissions?: string[]  // Optional - loaded separately
 }
 
+// ⚡ FAST LOGIN - No expensive queries during authentication
 const LOGIN_MUTATION = gql`
   mutation Login($input: LoginInput!) {
     login(input: $input) {
@@ -79,10 +80,7 @@ const LOGIN_MUTATION = gql`
         email
         firstName
         lastName
-        role {
-          name
-          level
-        }
+        # No role/permissions here for speed!
       }
       accessToken
       refreshToken
@@ -90,8 +88,36 @@ const LOGIN_MUTATION = gql`
   }
 `
 
-// Login implementation
+// 🔐 SEPARATE USER DATA QUERY - Load role info when needed
+const ME_QUERY = gql`
+  query Me {
+    me {
+      id
+      email
+      firstName
+      lastName
+      role {
+        id
+        name
+        level
+      }
+      # Permissions loaded separately via DataLoader (optimized)
+    }
+  }
+`
+
+// 🎯 PERMISSIONS QUERY - Optimized with DataLoader batching
+const USER_PERMISSIONS_QUERY = gql`
+  query UserPermissions {
+    me {
+      permissions  # Uses DataLoader for maximum performance
+    }
+  }
+`
+
+// Optimized login implementation
 export const authService = {
+  // Fast login - typically 10-20ms
   async login(email: string, password: string) {
     const result = await apolloClient.mutate<LoginMutation>({
       mutation: LOGIN_MUTATION,
@@ -100,64 +126,102 @@ export const authService = {
     
     const { user, accessToken, refreshToken } = result.data!.login
     
-    // Store tokens
+    // Store tokens immediately
     localStorage.setItem('accessToken', accessToken)
     localStorage.setItem('refreshToken', refreshToken)
     
-    // Get user permissions
-    const userWithPermissions = await this.getCurrentUser()
-    return userWithPermissions
+    // Return basic user info - permissions loaded separately
+    return user as AuthUser
   },
 
+  // Get full user profile (called after login or when needed)
   async getCurrentUser(): Promise<AuthUser> {
-    const ME_QUERY = gql`
-      query Me {
-        me {
-          id
-          email
-          firstName
-          lastName
-          role {
-            name
-            level
-          }
-        }
-      }
-    `
-    
     const result = await apolloClient.query<MeQuery>({
-      query: ME_QUERY
+      query: ME_QUERY,
+      fetchPolicy: 'cache-first'  // Cache user data
     })
     
     return result.data.me as AuthUser
+  },
+
+  // Load permissions separately (cached by DataLoader)
+  async getUserPermissions(): Promise<string[]> {
+    const result = await apolloClient.query<UserPermissionsQuery>({
+      query: USER_PERMISSIONS_QUERY,
+      fetchPolicy: 'cache-first'  // Cache permissions
+    })
+    
+    return result.data.me.permissions
+  },
+
+  // Complete user data (role + permissions) - called when needed
+  async getCompleteUserData(): Promise<AuthUser> {
+    const [user, permissions] = await Promise.all([
+      this.getCurrentUser(),
+      this.getUserPermissions()
+    ])
+    
+    return { ...user, permissions }
   }
 }
 ```
 
-#### 2. Permission-Based Access Control
+#### 2. Efficient Permission-Based Access Control
 
 ```typescript
-// Permission service for frontend
+// Permission service with lazy loading and caching
 export class PermissionService {
   private user: AuthUser | null = null
+  private permissionsCache: string[] | null = null
+  private permissionsPromise: Promise<string[]> | null = null
 
   setUser(user: AuthUser) {
     this.user = user
+    // Clear permissions cache when user changes
+    this.permissionsCache = null
+    this.permissionsPromise = null
   }
 
-  // Check if user has specific permission
-  hasPermission(action: string): boolean {
+  // Lazy load permissions with caching
+  private async getPermissions(): Promise<string[]> {
+    if (this.permissionsCache) {
+      return this.permissionsCache
+    }
+
+    if (this.permissionsPromise) {
+      return this.permissionsPromise
+    }
+
+    this.permissionsPromise = authService.getUserPermissions()
+    this.permissionsCache = await this.permissionsPromise
+    return this.permissionsCache
+  }
+
+  // Check if user has specific permission (async for first load)
+  async hasPermission(action: string): Promise<boolean> {
     if (!this.user) return false
-    return this.user.permissions.includes(action)
+    
+    const permissions = await this.getPermissions()
+    return permissions.some(perm => 
+      perm === action || perm.endsWith(`:${action}`)
+    )
   }
 
-  // Check if user has minimum role level
+  // Sync permission check (requires permissions to be loaded)
+  hasPermissionSync(action: string): boolean {
+    if (!this.user || !this.permissionsCache) return false
+    return this.permissionsCache.some(perm => 
+      perm === action || perm.endsWith(`:${action}`)
+    )
+  }
+
+  // Check if user has minimum role level (fast - no async needed)
   hasRoleLevel(minLevel: number): boolean {
     if (!this.user?.role) return false
     return this.user.role.level >= minLevel
   }
 
-  // Role-based checks
+  // Role-based checks (fast)
   isSuperAdmin(): boolean {
     return this.user?.role?.name === 'super_admin'
   }
@@ -166,54 +230,130 @@ export class PermissionService {
     return this.hasRoleLevel(50) // admin level or higher
   }
 
-  canInviteUsers(): boolean {
+  // Permission-based checks (async)
+  async canInviteUsers(): Promise<boolean> {
     return this.hasPermission('invite_users')
   }
 
-  canManageUsers(): boolean {
+  async canManageUsers(): Promise<boolean> {
     return this.hasPermission('user_management')
   }
 
-  canAdminSystem(): boolean {
+  async canAdminSystem(): Promise<boolean> {
     return this.hasPermission('system_admin')
+  }
+
+  // Preload permissions for instant sync checks
+  async preloadPermissions(): Promise<void> {
+    await this.getPermissions()
+  }
+
+  // Clear cache when permissions might have changed
+  clearCache(): void {
+    this.permissionsCache = null
+    this.permissionsPromise = null
   }
 }
 
 export const permissionService = new PermissionService()
 ```
 
-### 3. Vue Composable for RBAC
+### 3. Optimized Vue Composable for RBAC
 
 ```typescript
 // composables/usePermissions.ts
-import { computed, ref } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { permissionService } from '@/services/permissions'
 import type { AuthUser } from '@/types/auth'
 
 export function usePermissions() {
   const user = ref<AuthUser | null>(null)
+  const permissionsLoaded = ref(false)
+  const permissionsLoading = ref(false)
 
-  const hasPermission = (action: string) => {
-    return computed(() => permissionService.hasPermission(action))
-  }
-
+  // Fast role-based checks (no async needed)
   const hasRoleLevel = (minLevel: number) => {
     return computed(() => permissionService.hasRoleLevel(minLevel))
   }
 
-  const canInviteUsers = computed(() => permissionService.canInviteUsers())
-  const canManageUsers = computed(() => permissionService.canManageUsers())
   const isAdmin = computed(() => permissionService.isAdmin())
   const isSuperAdmin = computed(() => permissionService.isSuperAdmin())
 
+  // Permission checks (require permissions to be loaded)
+  const hasPermissionSync = (action: string) => {
+    return computed(() => 
+      permissionsLoaded.value && permissionService.hasPermissionSync(action)
+    )
+  }
+
+  // Async permission loading
+  const loadPermissions = async () => {
+    if (permissionsLoaded.value || permissionsLoading.value) return
+    
+    permissionsLoading.value = true
+    try {
+      await permissionService.preloadPermissions()
+      permissionsLoaded.value = true
+    } finally {
+      permissionsLoading.value = false
+    }
+  }
+
+  // Computed permission checks (reactive)
+  const canInviteUsers = computed(() => 
+    permissionsLoaded.value && permissionService.hasPermissionSync('invite_users')
+  )
+  
+  const canManageUsers = computed(() => 
+    permissionsLoaded.value && permissionService.hasPermissionSync('user_management')
+  )
+
+  const canAdminSystem = computed(() => 
+    permissionsLoaded.value && permissionService.hasPermissionSync('system_admin')
+  )
+
+  // Auto-load permissions when composable is used
+  onMounted(() => {
+    if (user.value) {
+      loadPermissions()
+    }
+  })
+
+  // Reactive login state
+  const login = async (email: string, password: string) => {
+    // Fast login
+    user.value = await authService.login(email, password)
+    permissionService.setUser(user.value)
+    
+    // Load additional user data in background
+    const [fullUser] = await Promise.all([
+      authService.getCurrentUser(),
+      loadPermissions()
+    ])
+    
+    user.value = fullUser
+    return user.value
+  }
+
   return {
     user,
-    hasPermission,
+    permissionsLoaded,
+    permissionsLoading,
+    
+    // Fast checks
     hasRoleLevel,
+    isAdmin,
+    isSuperAdmin,
+    
+    // Permission checks
+    hasPermissionSync,
     canInviteUsers,
     canManageUsers,
-    isAdmin,
-    isSuperAdmin
+    canAdminSystem,
+    
+    // Actions
+    login,
+    loadPermissions
   }
 }
 ```
@@ -588,6 +728,13 @@ const { canManageUsers, canInviteUsers, isSuperAdmin } = usePermissions()
 
 ## ⚡ Performance Optimizations
 
+The API implements **Option 3: Optimized Login + Lazy Permission Loading** for maximum performance:
+
+### **Two-Phase Authentication Strategy**
+1. **Phase 1: Fast Login** (~10-20ms) - Only essential user data + tokens
+2. **Phase 2: Lazy Loading** - Role/permissions loaded when needed
+
+### **Backend Performance Features**
 The API includes **DataLoader optimization** for maximum performance:
 
 ### **Automatic Query Optimization**

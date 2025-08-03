@@ -50,10 +50,10 @@ impl User {
     }
 
     async fn permissions(&self, ctx: &Context<'_>) -> Result<Vec<String>> {
-        let user_service = ctx.data::<crate::services::UserService>()?;
+        let dataloader = ctx.data::<crate::graphql::DataLoaderContext>()?;
         
-        user_service
-            .get_user_permissions(self.id)
+        dataloader
+            .load_user_permissions(self.id)
             .await
             .map_err(|e| Error::new(format!("Failed to fetch permissions: {}", e)))
     }
