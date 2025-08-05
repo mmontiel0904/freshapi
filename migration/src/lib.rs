@@ -1,5 +1,6 @@
 pub use sea_orm_migration::prelude::*;
 
+mod rbac_helpers;
 mod m20220101_000001_create_table;
 
 mod m20250728_121007_add_refresh_tokens_to_user;

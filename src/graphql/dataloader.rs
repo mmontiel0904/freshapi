@@ -10,14 +10,21 @@ use crate::auth::PermissionService;
 #[derive(Clone)]
 pub struct PermissionLoader {
     permission_service: PermissionService,
-    resource_name: String,
+    resource_name: Option<String>, // None means load ALL permissions across all resources
 }
 
 impl PermissionLoader {
     pub fn new(db: DatabaseConnection, resource_name: String) -> Self {
         Self {
             permission_service: PermissionService::new(db),
-            resource_name,
+            resource_name: Some(resource_name),
+        }
+    }
+
+    pub fn new_all_resources(db: DatabaseConnection) -> Self {
+        Self {
+            permission_service: PermissionService::new(db),
+            resource_name: None,
         }
     }
 }
@@ -28,11 +35,20 @@ impl Loader<Uuid> for PermissionLoader {
 
     /// Batch load permissions for multiple users
     async fn load(&self, keys: &[Uuid]) -> Result<HashMap<Uuid, Self::Value>, Self::Error> {
-        let permissions_map = self
-            .permission_service
-            .get_users_permissions_batch(keys, &self.resource_name)
-            .await
-            .map_err(|e| format!("Failed to load permissions: {}", e))?;
+        let permissions_map = match &self.resource_name {
+            Some(resource_name) => {
+                self.permission_service
+                    .get_users_permissions_batch(keys, resource_name)
+                    .await
+                    .map_err(|e| format!("Failed to load permissions: {}", e))?
+            }
+            None => {
+                self.permission_service
+                    .get_users_all_permissions_batch(keys)
+                    .await
+                    .map_err(|e| format!("Failed to load all permissions: {}", e))?
+            }
+        };
 
         Ok(permissions_map)
     }
@@ -75,7 +91,8 @@ impl Loader<Uuid> for PermissionCheckLoader {
 /// DataLoader context for GraphQL resolvers
 #[derive(Clone)]
 pub struct DataLoaderContext {
-    pub permission_loader: Arc<DataLoader<PermissionLoader>>,
+    pub permission_loader: Arc<DataLoader<PermissionLoader>>, // freshapi permissions only
+    pub all_permissions_loader: Arc<DataLoader<PermissionLoader>>, // ALL permissions across all resources
     pub invite_users_loader: Arc<DataLoader<PermissionCheckLoader>>,
     pub user_management_loader: Arc<DataLoader<PermissionCheckLoader>>,
     pub admin_loader: Arc<DataLoader<PermissionCheckLoader>>,
@@ -91,6 +108,12 @@ impl DataLoaderContext {
                 tokio::spawn,
             )
             .max_batch_size(100)), // Batch up to 100 permission requests
+            
+            all_permissions_loader: Arc::new(DataLoader::new(
+                PermissionLoader::new_all_resources(db.clone()),
+                tokio::spawn,
+            )
+            .max_batch_size(100)), // Batch up to 100 all-permission requests
             
             invite_users_loader: Arc::new(DataLoader::new(
                 PermissionCheckLoader::new(db.clone(), "freshapi".to_string(), "invite_users".to_string()),
@@ -118,9 +141,17 @@ impl DataLoaderContext {
         }
     }
 
-    /// Load permissions for a single user (with caching)
+    /// Load permissions for a single user (with caching) - freshapi only
     pub async fn load_user_permissions(&self, user_id: Uuid) -> Result<Vec<String>, String> {
         self.permission_loader
+            .load_one(user_id)
+            .await?
+            .ok_or_else(|| "User not found".to_string())
+    }
+
+    /// Load ALL permissions for a single user across ALL resources (with caching)
+    pub async fn load_user_all_permissions(&self, user_id: Uuid) -> Result<Vec<String>, String> {
+        self.all_permissions_loader
             .load_one(user_id)
             .await?
             .ok_or_else(|| "User not found".to_string())
@@ -149,6 +180,7 @@ impl DataLoaderContext {
     /// Clear all caches (useful for testing or when permissions change)
     pub fn clear_all(&self) {
         self.permission_loader.clear();
+        self.all_permissions_loader.clear();
         self.invite_users_loader.clear();
         self.user_management_loader.clear();
         self.admin_loader.clear();

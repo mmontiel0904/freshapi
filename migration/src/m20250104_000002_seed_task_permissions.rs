@@ -2,6 +2,7 @@ use sea_orm_migration::prelude::*;
 use sea_orm::{ActiveModelTrait, Set, EntityTrait, ColumnTrait, QueryFilter, DbErr};
 use chrono::Utc;
 use uuid::Uuid;
+use crate::rbac_helpers::create_resource_with_admin_permissions;
 
 #[derive(DeriveMigrationName)]
 pub struct Migration;
@@ -12,19 +13,6 @@ impl MigrationTrait for Migration {
         let db = manager.get_connection();
 
         println!("🌱 Seeding task system RBAC permissions...");
-
-        // Create task_system resource
-        let task_system_resource_id = Uuid::new_v4();
-        let task_system_resource = freshapi::entities::resource::ActiveModel {
-            id: Set(task_system_resource_id),
-            name: Set("task_system".to_string()),
-            description: Set(Some("Task Management System".to_string())),
-            is_active: Set(true),
-            created_at: Set(Utc::now().into()),
-            updated_at: Set(Utc::now().into()),
-        };
-        task_system_resource.insert(db).await?;
-        println!("✅ Created resource: task_system");
 
         // Define task system permissions
         let permissions = vec![
@@ -39,56 +27,7 @@ impl MigrationTrait for Migration {
             ("task_delete", "Delete tasks"),
         ];
 
-        let mut permission_ids = Vec::new();
-
-        for (action, description) in &permissions {
-            let permission_id = Uuid::new_v4();
-            let permission = freshapi::entities::permission::ActiveModel {
-                id: Set(permission_id),
-                action: Set(String::from(*action)),
-                resource_id: Set(task_system_resource_id),
-                description: Set(Some(String::from(*description))),
-                is_active: Set(true),
-                created_at: Set(Utc::now().into()),
-                updated_at: Set(Utc::now().into()),
-            };
-            permission.insert(db).await?;
-            permission_ids.push((action, permission_id));
-            println!("✅ Created permission: {}", action);
-        }
-
-        // Get existing roles
-        let super_admin_role = freshapi::entities::role::Entity::find()
-            .filter(freshapi::entities::role::Column::Name.eq("super_admin"))
-            .one(db)
-            .await?
-            .ok_or_else(|| DbErr::Custom("Super admin role not found".to_string()))?;
-
-        let admin_role = freshapi::entities::role::Entity::find()
-            .filter(freshapi::entities::role::Column::Name.eq("admin"))
-            .one(db)
-            .await?
-            .ok_or_else(|| DbErr::Custom("Admin role not found".to_string()))?;
-
-        let user_role = freshapi::entities::role::Entity::find()
-            .filter(freshapi::entities::role::Column::Name.eq("user"))
-            .one(db)
-            .await?
-            .ok_or_else(|| DbErr::Custom("User role not found".to_string()))?;
-
-        // Assign permissions to super_admin (all permissions)
-        for (action, permission_id) in &permission_ids {
-            let role_permission = freshapi::entities::role_permission::ActiveModel {
-                id: Set(Uuid::new_v4()),
-                role_id: Set(super_admin_role.id),
-                permission_id: Set(*permission_id),
-                created_at: Set(Utc::now().into()),
-            };
-            role_permission.insert(db).await?;
-            println!("✅ Assigned {} to super_admin", action);
-        }
-
-        // Assign permissions to admin (project management)
+        // Define which permissions admin role should get (all in this case)
         let admin_permissions = vec![
             "project_create",
             "project_read", 
@@ -101,18 +40,21 @@ impl MigrationTrait for Migration {
             "task_delete",
         ];
 
-        for action in &admin_permissions {
-            if let Some((_, permission_id)) = permission_ids.iter().find(|(a, _)| *a == action) {
-                let role_permission = freshapi::entities::role_permission::ActiveModel {
-                    id: Set(Uuid::new_v4()),
-                    role_id: Set(admin_role.id),
-                    permission_id: Set(*permission_id),
-                    created_at: Set(Utc::now().into()),
-                };
-                role_permission.insert(db).await?;
-                println!("✅ Assigned {} to admin", action);
-            }
-        }
+        // Create resource with permissions and automatically assign to admin roles
+        let task_system_resource_id = create_resource_with_admin_permissions(
+            db,
+            "task_system",
+            "Task Management System",
+            &permissions,
+            &admin_permissions,
+        ).await?;
+
+        // Get user role for basic permissions
+        let user_role = freshapi::entities::role::Entity::find()
+            .filter(freshapi::entities::role::Column::Name.eq("user"))
+            .one(db)
+            .await?
+            .ok_or_else(|| DbErr::Custom("User role not found".to_string()))?;
 
         // Assign permissions to user (basic project participation)
         let user_permissions = vec![
@@ -123,16 +65,31 @@ impl MigrationTrait for Migration {
             "task_write",      // Edit tasks they created or are assigned to
         ];
 
+        // Get all permissions for the task_system resource
+        let all_permissions = freshapi::entities::permission::Entity::find()
+            .filter(freshapi::entities::permission::Column::ResourceId.eq(task_system_resource_id))
+            .all(db)
+            .await?;
+
         for action in &user_permissions {
-            if let Some((_, permission_id)) = permission_ids.iter().find(|(a, _)| *a == action) {
-                let role_permission = freshapi::entities::role_permission::ActiveModel {
-                    id: Set(Uuid::new_v4()),
-                    role_id: Set(user_role.id),
-                    permission_id: Set(*permission_id),
-                    created_at: Set(Utc::now().into()),
-                };
-                role_permission.insert(db).await?;
-                println!("✅ Assigned {} to user", action);
+            if let Some(permission) = all_permissions.iter().find(|p| p.action == *action) {
+                // Check if assignment already exists
+                let existing = freshapi::entities::role_permission::Entity::find()
+                    .filter(freshapi::entities::role_permission::Column::RoleId.eq(user_role.id))
+                    .filter(freshapi::entities::role_permission::Column::PermissionId.eq(permission.id))
+                    .one(db)
+                    .await?;
+
+                if existing.is_none() {
+                    let role_permission = freshapi::entities::role_permission::ActiveModel {
+                        id: Set(Uuid::new_v4()),
+                        role_id: Set(user_role.id),
+                        permission_id: Set(permission.id),
+                        created_at: Set(Utc::now().into()),
+                    };
+                    role_permission.insert(db).await?;
+                    println!("✅ Assigned {} to user", action);
+                }
             }
         }
 

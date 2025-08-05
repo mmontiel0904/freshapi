@@ -1,7 +1,7 @@
 use async_graphql::*;
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
-use sea_orm::EntityTrait;
+use sea_orm::{EntityTrait, ColumnTrait, QueryFilter, PaginatorTrait};
 
 #[derive(SimpleObject)]
 #[graphql(complex)]
@@ -179,12 +179,143 @@ impl From<crate::entities::role::Model> for Role {
 }
 
 #[derive(SimpleObject)]
+#[graphql(complex)]
 pub struct Permission {
     pub id: Uuid,
     pub action: String,
-    pub resource_name: String,
+    pub resource_id: Uuid,
     pub description: Option<String>,
     pub is_active: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl From<crate::entities::permission::Model> for Permission {
+    fn from(permission: crate::entities::permission::Model) -> Self {
+        Self {
+            id: permission.id,
+            action: permission.action,
+            resource_id: permission.resource_id,
+            description: permission.description,
+            is_active: permission.is_active,
+            created_at: permission.created_at.into(),
+            updated_at: permission.updated_at.into(),
+        }
+    }
+}
+
+#[ComplexObject]
+impl Permission {
+    async fn resource(&self, ctx: &Context<'_>) -> Result<Option<Resource>> {
+        let user_service = ctx.data::<crate::services::UserService>()?;
+        
+        let resource = crate::entities::resource::Entity::find_by_id(self.resource_id)
+            .one(user_service.get_db())
+            .await
+            .map_err(|e| Error::new(format!("Failed to fetch resource: {}", e)))?;
+            
+        Ok(resource.map(|r| r.into()))
+    }
+
+    async fn resource_name(&self, ctx: &Context<'_>) -> Result<String> {
+        let user_service = ctx.data::<crate::services::UserService>()?;
+        
+        let resource = crate::entities::resource::Entity::find_by_id(self.resource_id)
+            .one(user_service.get_db())
+            .await
+            .map_err(|e| Error::new(format!("Failed to fetch resource: {}", e)))?
+            .ok_or_else(|| Error::new("Resource not found"))?;
+            
+        Ok(resource.name)
+    }
+}
+
+#[derive(SimpleObject)]
+pub struct Resource {
+    pub id: Uuid,
+    pub name: String,
+    pub description: Option<String>,
+    pub is_active: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl From<crate::entities::resource::Model> for Resource {
+    fn from(resource: crate::entities::resource::Model) -> Self {
+        Self {
+            id: resource.id,
+            name: resource.name,
+            description: resource.description,
+            is_active: resource.is_active,
+            created_at: resource.created_at.into(),
+            updated_at: resource.updated_at.into(),
+        }
+    }
+}
+
+#[derive(SimpleObject)]
+#[graphql(complex)]
+pub struct RoleWithPermissions {
+    pub id: Uuid,
+    pub name: String,
+    pub description: Option<String>,
+    pub level: i32,
+    pub is_active: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl From<crate::entities::role::Model> for RoleWithPermissions {
+    fn from(role: crate::entities::role::Model) -> Self {
+        Self {
+            id: role.id,
+            name: role.name,
+            description: role.description,
+            level: role.level,
+            is_active: role.is_active,
+            created_at: role.created_at.into(),
+            updated_at: role.updated_at.into(),
+        }
+    }
+}
+
+#[ComplexObject]
+impl RoleWithPermissions {
+    async fn permissions(&self, ctx: &Context<'_>) -> Result<Vec<Permission>> {
+        let user_service = ctx.data::<crate::services::UserService>()?;
+        
+        use sea_orm::{JoinType, QuerySelect, RelationTrait};
+        
+        let permissions = crate::entities::role_permission::Entity::find()
+            .filter(crate::entities::role_permission::Column::RoleId.eq(self.id))
+            .join(JoinType::InnerJoin, crate::entities::role_permission::Relation::Permission.def())
+            .select_only()
+            .column_as(crate::entities::permission::Column::Id, "id")
+            .column_as(crate::entities::permission::Column::Action, "action")
+            .column_as(crate::entities::permission::Column::ResourceId, "resource_id")
+            .column_as(crate::entities::permission::Column::Description, "description")
+            .column_as(crate::entities::permission::Column::IsActive, "is_active")
+            .column_as(crate::entities::permission::Column::CreatedAt, "created_at")
+            .column_as(crate::entities::permission::Column::UpdatedAt, "updated_at")
+            .into_model::<crate::entities::permission::Model>()
+            .all(user_service.get_db())
+            .await
+            .map_err(|e| Error::new(format!("Failed to fetch permissions: {}", e)))?;
+            
+        Ok(permissions.into_iter().map(|p| p.into()).collect())
+    }
+
+    async fn user_count(&self, ctx: &Context<'_>) -> Result<u32> {
+        let user_service = ctx.data::<crate::services::UserService>()?;
+        
+        let count = crate::entities::user::Entity::find()
+            .filter(crate::entities::user::Column::RoleId.eq(self.id))
+            .count(user_service.get_db())
+            .await
+            .map_err(|e| Error::new(format!("Failed to count users: {}", e)))?;
+            
+        Ok(count as u32)
+    }
 }
 
 #[derive(SimpleObject)]
@@ -210,6 +341,80 @@ pub struct AssignRoleInput {
 pub struct InviteUserWithRoleInput {
     pub email: String,
     pub role_id: Option<Uuid>,
+}
+
+// Role CRUD Input Types
+#[derive(InputObject)]
+pub struct CreateRoleInput {
+    pub name: String,
+    pub description: Option<String>,
+    pub level: i32,
+}
+
+#[derive(InputObject)]
+pub struct UpdateRoleInput {
+    pub role_id: Uuid,
+    pub name: Option<String>,
+    pub description: Option<Option<String>>,
+    pub level: Option<i32>,
+    pub is_active: Option<bool>,
+}
+
+#[derive(InputObject)]
+pub struct AssignPermissionToRoleInput {
+    pub role_id: Uuid,
+    pub permission_id: Uuid,
+}
+
+#[derive(InputObject)]
+pub struct RemovePermissionFromRoleInput {
+    pub role_id: Uuid,
+    pub permission_id: Uuid,
+}
+
+// Permission CRUD Input Types
+#[derive(InputObject)]
+pub struct CreatePermissionInput {
+    pub action: String,
+    pub resource_id: Uuid,
+    pub description: Option<String>,
+}
+
+#[derive(InputObject)]
+pub struct UpdatePermissionInput {
+    pub permission_id: Uuid,
+    pub action: Option<String>,
+    pub resource_id: Option<Uuid>,
+    pub description: Option<Option<String>>,
+    pub is_active: Option<bool>,
+}
+
+// Resource CRUD Input Types
+#[derive(InputObject)]
+pub struct CreateResourceInput {
+    pub name: String,
+    pub description: Option<String>,
+}
+
+#[derive(InputObject)]
+pub struct UpdateResourceInput {
+    pub resource_id: Uuid,
+    pub name: Option<String>,
+    pub description: Option<Option<String>>,
+    pub is_active: Option<bool>,
+}
+
+// User Permission Management
+#[derive(InputObject)]
+pub struct GrantUserPermissionInput {
+    pub user_id: Uuid,
+    pub permission_id: Uuid,
+}
+
+#[derive(InputObject)]
+pub struct RevokeUserPermissionInput {
+    pub user_id: Uuid,
+    pub permission_id: Uuid,
 }
 
 // Project Types

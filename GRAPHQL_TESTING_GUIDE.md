@@ -519,6 +519,397 @@ mutation AdminResetUserPassword($input: AdminResetUserPasswordInput!) {
 
 ---
 
+## 🎛️ RBAC CRUD Operations
+*All require admin permissions*
+
+### 🏷️ Role Management
+
+#### Create Role
+```graphql
+mutation CreateRole($input: CreateRoleInput!) {
+  createRole(input: $input) {
+    id
+    name
+    description
+    level
+    isActive
+    createdAt
+    updatedAt
+  }
+}
+```
+
+**Variables:**
+```json
+{
+  "input": {
+    "name": "manager",
+    "description": "Project managers with elevated permissions",
+    "level": 30
+  }
+}
+```
+
+#### Update Role
+```graphql
+mutation UpdateRole($input: UpdateRoleInput!) {
+  updateRole(input: $input) {
+    id
+    name
+    description
+    level
+    isActive
+    updatedAt
+  }
+}
+```
+
+**Variables:**
+```json
+{
+  "input": {
+    "roleId": "role-uuid-here",
+    "name": "senior_manager",
+    "description": "Senior project managers",
+    "level": 40
+  }
+}
+```
+
+#### Delete Role
+```graphql
+mutation DeleteRole($roleId: UUID!) {
+  deleteRole(roleId: $roleId) {
+    message
+  }
+}
+```
+
+#### Get All Roles with Permissions
+```graphql
+query AllRolesWithPermissions {
+  allRolesWithPermissions {
+    id
+    name
+    description
+    level
+    isActive
+    permissions {
+      id
+      action
+      resourceName
+      description
+    }
+    userCount
+    createdAt
+  }
+}
+```
+
+#### Get Role by ID
+```graphql
+query RoleById($roleId: UUID!) {
+  roleById(roleId: $roleId) {
+    id
+    name
+    description
+    level
+    isActive
+    permissions {
+      id
+      action
+      resourceName
+      description
+    }
+    userCount
+    createdAt
+  }
+}
+```
+
+### 🔐 Permission Management
+
+#### Create Permission
+```graphql
+mutation CreatePermission($input: CreatePermissionInput!) {
+  createPermission(input: $input) {
+    id
+    action
+    resourceId
+    description
+    isActive
+    createdAt
+  }
+}
+```
+
+**Variables:**
+```json
+{
+  "input": {
+    "action": "moderate",
+    "resourceId": "resource-uuid-here",
+    "description": "Moderate content and user actions"
+  }
+}
+```
+
+#### Update Permission
+```graphql
+mutation UpdatePermission($input: UpdatePermissionInput!) {
+  updatePermission(input: $input) {
+    id
+    action
+    resourceId
+    description
+    isActive
+    updatedAt
+  }
+}
+```
+
+**Variables:**
+```json
+{
+  "input": {
+    "permissionId": "permission-uuid-here",
+    "action": "moderate_content",
+    "description": "Moderate user content and comments"
+  }
+}
+```
+
+#### Delete Permission
+```graphql
+mutation DeletePermission($permissionId: UUID!) {
+  deletePermission(permissionId: $permissionId) {
+    message
+  }
+}
+```
+
+#### Get All Permissions
+```graphql
+query AllPermissions($resourceId: UUID) {
+  allPermissions(resourceId: $resourceId) {
+    id
+    action
+    resourceId
+    resourceName
+    description
+    isActive
+    createdAt
+  }
+}
+```
+
+#### Get Permission by ID
+```graphql
+query PermissionById($permissionId: UUID!) {
+  permissionById(permissionId: $permissionId) {
+    id
+    action
+    resourceId
+    resourceName
+    description
+    isActive
+    createdAt
+  }
+}
+```
+
+### 🏗️ Resource Management
+
+#### Create Resource
+```graphql
+mutation CreateResource($input: CreateResourceInput!) {
+  createResource(input: $input) {
+    id
+    name
+    description
+    isActive
+    createdAt
+  }
+}
+```
+
+**Variables:**
+```json
+{
+  "input": {
+    "name": "billing_system",
+    "description": "Billing and payment management system"
+  }
+}
+```
+
+#### Update Resource
+```graphql
+mutation UpdateResource($input: UpdateResourceInput!) {
+  updateResource(input: $input) {
+    id
+    name
+    description
+    isActive
+    updatedAt
+  }
+}
+```
+
+**Variables:**
+```json
+{
+  "input": {
+    "resourceId": "resource-uuid-here",
+    "name": "billing_service",
+    "description": "Enhanced billing and subscription service"
+  }
+}
+```
+
+#### Delete Resource
+```graphql
+mutation DeleteResource($resourceId: UUID!) {
+  deleteResource(resourceId: $resourceId) {
+    message
+  }
+}
+```
+
+#### Get All Resources
+```graphql
+query AllResources {
+  allResources {
+    id
+    name
+    description
+    isActive
+    createdAt
+  }
+}
+```
+
+#### Get Resource by ID
+```graphql
+query ResourceById($resourceId: UUID!) {
+  resourceById(resourceId: $resourceId) {
+    id
+    name
+    description
+    isActive
+    createdAt
+  }
+}
+```
+
+### 🔗 Role-Permission Assignment
+
+#### Assign Permission to Role
+```graphql
+mutation AssignPermissionToRole($input: AssignPermissionToRoleInput!) {
+  assignPermissionToRole(input: $input) {
+    message
+  }
+}
+```
+
+**Variables:**
+```json
+{
+  "input": {
+    "roleId": "role-uuid-here",
+    "permissionId": "permission-uuid-here"
+  }
+}
+```
+
+#### Remove Permission from Role
+```graphql
+mutation RemovePermissionFromRole($input: RemovePermissionFromRoleInput!) {
+  removePermissionFromRole(input: $input) {
+    message
+  }
+}
+```
+
+**Variables:**
+```json
+{
+  "input": {
+    "roleId": "role-uuid-here",
+    "permissionId": "permission-uuid-here"
+  }
+}
+```
+
+#### Get Role Permissions
+```graphql
+query RolePermissions($roleId: UUID!) {
+  rolePermissions(roleId: $roleId) {
+    id
+    action
+    resourceName
+    description
+    isActive
+  }
+}
+```
+
+### 👤 User Direct Permission Management
+
+#### Grant Permission to User
+```graphql
+mutation GrantUserPermission($input: GrantUserPermissionInput!) {
+  grantUserPermission(input: $input) {
+    message
+  }
+}
+```
+
+**Variables:**
+```json
+{
+  "input": {
+    "userId": "user-uuid-here",
+    "permissionId": "permission-uuid-here"
+  }
+}
+```
+
+#### Revoke Permission from User
+```graphql
+mutation RevokeUserPermission($input: RevokeUserPermissionInput!) {
+  revokeUserPermission(input: $input) {
+    message
+  }
+}
+```
+
+**Variables:**
+```json
+{
+  "input": {
+    "userId": "user-uuid-here",
+    "permissionId": "permission-uuid-here"
+  }
+}
+```
+
+#### Get User Direct Permissions
+```graphql
+query UserDirectPermissions($userId: UUID!) {
+  userDirectPermissions(userId: $userId) {
+    id
+    action
+    resourceName
+    description
+    isActive
+  }
+}
+```
+
+---
+
 ## 🔧 Headers Configuration
 
 ### For Authentication Required Endpoints

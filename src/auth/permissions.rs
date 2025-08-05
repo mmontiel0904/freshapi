@@ -14,6 +14,63 @@ impl PermissionService {
         Self { db }
     }
 
+    /// Get ALL permissions for a user across ALL resources - OPTIMIZED
+    pub async fn get_user_all_permissions(
+        &self,
+        user_id: Uuid,
+    ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+        use crate::entities::{role_permission};
+        
+        let mut permissions = HashSet::new();
+
+        // Get user with role in single query
+        let user_with_role = User::find_by_id(user_id)
+            .find_also_related(Role)
+            .one(&self.db)
+            .await?;
+
+        if let Some((_, role_opt)) = user_with_role {
+            // Get ALL role permissions if user has a role (across all resources)
+            if let Some(role) = role_opt {
+                let role_permissions = RolePermission::find()
+                    .filter(role_permission::Column::RoleId.eq(role.id))
+                    .find_also_related(Permission)
+                    .all(&self.db)
+                    .await?;
+
+                for (_, permission_opt) in role_permissions {
+                    if let Some(permission) = permission_opt {
+                        if permission.is_active {
+                            permissions.insert(permission.action);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Get direct user permissions (can override role permissions) across all resources
+        let user_permissions = UserPermission::find()
+            .filter(user_permission::Column::UserId.eq(user_id))
+            .find_also_related(Permission)
+            .all(&self.db)
+            .await?;
+
+        for (user_perm, permission_opt) in user_permissions {
+            if let Some(permission) = permission_opt {
+                if permission.is_active {
+                    if user_perm.is_granted {
+                        permissions.insert(permission.action);
+                    } else {
+                        // Deny permission explicitly removes it
+                        permissions.remove(&permission.action);
+                    }
+                }
+            }
+        }
+
+        Ok(permissions.into_iter().collect())
+    }
+
     /// Get all permissions for a user (both from role and direct assignments) - OPTIMIZED
     pub async fn get_user_permissions(
         &self,
@@ -341,5 +398,99 @@ impl PermissionService {
             .collect();
 
         Ok(result)
+    }
+
+    /// Batch load ALL permissions for multiple users across ALL resources - OPTIMIZED for GraphQL resolvers
+    pub async fn get_users_all_permissions_batch(
+        &self,
+        user_ids: &[Uuid],
+    ) -> Result<HashMap<Uuid, Vec<String>>, Box<dyn std::error::Error>> {
+        use crate::entities::{role_permission, user};
+        
+        let mut result: HashMap<Uuid, HashSet<String>> = HashMap::new();
+        
+        // Initialize result map
+        for &user_id in user_ids {
+            result.insert(user_id, HashSet::new());
+        }
+
+        // Get all users with their roles
+        let users_with_roles = User::find()
+            .filter(user::Column::Id.is_in(user_ids.iter().cloned()))
+            .find_also_related(Role)
+            .all(&self.db)
+            .await?;
+
+        // Track users with roles for role permission lookup
+        let mut users_with_roles_map: HashMap<Uuid, Uuid> = HashMap::new();
+
+        for (user, role_opt) in &users_with_roles {
+            if let Some(role) = role_opt {
+                users_with_roles_map.insert(user.id, role.id);
+            }
+        }
+
+        // Batch load role permissions for all roles at once (across ALL resources)
+        if !users_with_roles_map.is_empty() {
+            let role_ids: Vec<Uuid> = users_with_roles_map.values().cloned().collect();
+            
+            let role_permissions = RolePermission::find()
+                .filter(role_permission::Column::RoleId.is_in(role_ids))
+                .find_also_related(Permission)
+                .all(&self.db)
+                .await?;
+
+            // Group role permissions by role_id
+            let mut role_perms_map: HashMap<Uuid, Vec<String>> = HashMap::new();
+            for (role_perm, permission_opt) in role_permissions {
+                if let Some(permission) = permission_opt {
+                    if permission.is_active {
+                        role_perms_map
+                            .entry(role_perm.role_id)
+                            .or_insert_with(Vec::new)
+                            .push(permission.action);
+                    }
+                }
+            }
+
+            // Apply role permissions to users
+            for (user_id, role_id) in &users_with_roles_map {
+                if let Some(role_permissions) = role_perms_map.get(role_id) {
+                    let user_permissions = result.entry(*user_id).or_insert_with(HashSet::new);
+                    for perm in role_permissions {
+                        user_permissions.insert(perm.clone());
+                    }
+                }
+            }
+        }
+
+        // Get direct user permissions for all users (across ALL resources)
+        let user_permissions = UserPermission::find()
+            .filter(user_permission::Column::UserId.is_in(user_ids.iter().cloned()))
+            .find_also_related(Permission)
+            .all(&self.db)
+            .await?;
+
+        for (user_perm, permission_opt) in user_permissions {
+            if let Some(permission) = permission_opt {
+                if permission.is_active {
+                    let user_permissions = result.entry(user_perm.user_id).or_insert_with(HashSet::new);
+                    if user_perm.is_granted {
+                        user_permissions.insert(permission.action);
+                    } else {
+                        // Deny permission explicitly removes it
+                        user_permissions.remove(&permission.action);
+                    }
+                }
+            }
+        }
+
+        // Convert HashSets to Vecs
+        let final_result = result
+            .into_iter()
+            .map(|(user_id, perms)| (user_id, perms.into_iter().collect()))
+            .collect();
+
+        Ok(final_result)
     }
 }

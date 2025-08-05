@@ -1,8 +1,8 @@
 use async_graphql::*;
-use sea_orm::{EntityTrait, ColumnTrait, QueryFilter};
+use sea_orm::{EntityTrait, ColumnTrait, QueryFilter, QueryOrder};
 
 use crate::auth::{AuthenticatedUser, PermissionService, require_admin};
-use crate::graphql::types::{Invitation, User, Role, UserWithRole, Project, Task, TaskStats};
+use crate::graphql::types::{Invitation, User, Role, RoleWithPermissions, Permission, Resource, UserWithRole, Project, Task, TaskStats};
 use crate::graphql::DataLoaderContext;
 use crate::services::{InvitationService, UserService, ProjectService, TaskService, TaskStatus};
 
@@ -60,9 +60,9 @@ impl QueryRoot {
         let mut result = Vec::new();
         
         for (user, role_opt) in users_with_roles {
-            // DataLoader automatically batches all these calls into single database query
+            // DataLoader automatically batches all these calls into single database query - GET ALL PERMISSIONS
             let permissions = dataloader
-                .load_user_permissions(user.id)
+                .load_user_all_permissions(user.id)
                 .await
                 .map_err(|e| Error::new(format!("Failed to get permissions: {}", e)))?;
                 
@@ -102,7 +102,7 @@ impl QueryRoot {
         let permission_service = ctx.data::<PermissionService>()?;
         
         let permissions = permission_service
-            .get_user_permissions(user_id, "freshapi")
+            .get_user_all_permissions(user_id)
             .await
             .map_err(|e| Error::new(format!("Failed to get permissions: {}", e)))?;
 
@@ -123,9 +123,9 @@ impl QueryRoot {
             .map_err(|e| Error::new(format!("Failed to fetch user: {}", e)))?
             .ok_or_else(|| Error::new("User not found"))?;
 
-        // Use DataLoader for caching (beneficial if called multiple times)
+        // Use DataLoader for caching (beneficial if called multiple times) - GET ALL PERMISSIONS
         let permissions = dataloader
-            .load_user_permissions(user.id)
+            .load_user_all_permissions(user.id)
             .await
             .map_err(|e| Error::new(format!("Failed to get permissions: {}", e)))?;
 
@@ -169,9 +169,9 @@ impl QueryRoot {
         let mut result = Vec::new();
         
         for (user, role_opt) in users_with_roles {
-            // DataLoader automatically batches all these calls into single database query
+            // DataLoader automatically batches all these calls into single database query - GET ALL PERMISSIONS
             let permissions = dataloader
-                .load_user_permissions(user.id)
+                .load_user_all_permissions(user.id)
                 .await
                 .map_err(|e| Error::new(format!("Failed to get permissions: {}", e)))?;
                 
@@ -308,5 +308,149 @@ impl QueryRoot {
             cancelled: stats.cancelled,
             overdue: stats.overdue,
         })
+    }
+
+    // RBAC CRUD Queries - Admin only
+    async fn all_roles_with_permissions(&self, ctx: &Context<'_>) -> Result<Vec<RoleWithPermissions>> {
+        require_admin(ctx, "freshapi").await?;
+        
+        let user_service = ctx.data::<UserService>()?;
+        
+        let roles = crate::entities::role::Entity::find()
+            .filter(crate::entities::role::Column::IsActive.eq(true))
+            .order_by_asc(crate::entities::role::Column::Level)
+            .all(user_service.get_db())
+            .await
+            .map_err(|e| Error::new(format!("Failed to fetch roles: {}", e)))?;
+
+        Ok(roles.into_iter().map(|role| role.into()).collect())
+    }
+
+    async fn role_by_id(&self, ctx: &Context<'_>, role_id: uuid::Uuid) -> Result<Option<RoleWithPermissions>> {
+        require_admin(ctx, "freshapi").await?;
+        
+        let user_service = ctx.data::<UserService>()?;
+        
+        let role = crate::entities::role::Entity::find_by_id(role_id)
+            .one(user_service.get_db())
+            .await
+            .map_err(|e| Error::new(format!("Failed to fetch role: {}", e)))?;
+
+        Ok(role.map(|r| r.into()))
+    }
+
+    async fn all_permissions(&self, ctx: &Context<'_>, resource_id: Option<uuid::Uuid>) -> Result<Vec<Permission>> {
+        require_admin(ctx, "freshapi").await?;
+        
+        let user_service = ctx.data::<UserService>()?;
+        
+        let mut query = crate::entities::permission::Entity::find()
+            .filter(crate::entities::permission::Column::IsActive.eq(true));
+            
+        if let Some(resource_id) = resource_id {
+            query = query.filter(crate::entities::permission::Column::ResourceId.eq(resource_id));
+        }
+        
+        let permissions = query
+            .order_by_asc(crate::entities::permission::Column::Action)
+            .all(user_service.get_db())
+            .await
+            .map_err(|e| Error::new(format!("Failed to fetch permissions: {}", e)))?;
+
+        Ok(permissions.into_iter().map(|p| p.into()).collect())
+    }
+
+    async fn permission_by_id(&self, ctx: &Context<'_>, permission_id: uuid::Uuid) -> Result<Option<Permission>> {
+        require_admin(ctx, "freshapi").await?;
+        
+        let user_service = ctx.data::<UserService>()?;
+        
+        let permission = crate::entities::permission::Entity::find_by_id(permission_id)
+            .one(user_service.get_db())
+            .await
+            .map_err(|e| Error::new(format!("Failed to fetch permission: {}", e)))?;
+
+        Ok(permission.map(|p| p.into()))
+    }
+
+    async fn all_resources(&self, ctx: &Context<'_>) -> Result<Vec<Resource>> {
+        require_admin(ctx, "freshapi").await?;
+        
+        let user_service = ctx.data::<UserService>()?;
+        
+        let resources = crate::entities::resource::Entity::find()
+            .filter(crate::entities::resource::Column::IsActive.eq(true))
+            .order_by_asc(crate::entities::resource::Column::Name)
+            .all(user_service.get_db())
+            .await
+            .map_err(|e| Error::new(format!("Failed to fetch resources: {}", e)))?;
+
+        Ok(resources.into_iter().map(|r| r.into()).collect())
+    }
+
+    async fn resource_by_id(&self, ctx: &Context<'_>, resource_id: uuid::Uuid) -> Result<Option<Resource>> {
+        require_admin(ctx, "freshapi").await?;
+        
+        let user_service = ctx.data::<UserService>()?;
+        
+        let resource = crate::entities::resource::Entity::find_by_id(resource_id)
+            .one(user_service.get_db())
+            .await
+            .map_err(|e| Error::new(format!("Failed to fetch resource: {}", e)))?;
+
+        Ok(resource.map(|r| r.into()))
+    }
+
+    async fn role_permissions(&self, ctx: &Context<'_>, role_id: uuid::Uuid) -> Result<Vec<Permission>> {
+        require_admin(ctx, "freshapi").await?;
+        
+        let user_service = ctx.data::<UserService>()?;
+        
+        use sea_orm::{JoinType, QuerySelect, RelationTrait};
+        
+        let permissions = crate::entities::role_permission::Entity::find()
+            .filter(crate::entities::role_permission::Column::RoleId.eq(role_id))
+            .join(JoinType::InnerJoin, crate::entities::role_permission::Relation::Permission.def())
+            .select_only()
+            .column_as(crate::entities::permission::Column::Id, "id")
+            .column_as(crate::entities::permission::Column::Action, "action")
+            .column_as(crate::entities::permission::Column::ResourceId, "resource_id")
+            .column_as(crate::entities::permission::Column::Description, "description")
+            .column_as(crate::entities::permission::Column::IsActive, "is_active")
+            .column_as(crate::entities::permission::Column::CreatedAt, "created_at")
+            .column_as(crate::entities::permission::Column::UpdatedAt, "updated_at")
+            .into_model::<crate::entities::permission::Model>()
+            .all(user_service.get_db())
+            .await
+            .map_err(|e| Error::new(format!("Failed to fetch role permissions: {}", e)))?;
+
+        Ok(permissions.into_iter().map(|p| p.into()).collect())
+    }
+
+    async fn user_direct_permissions(&self, ctx: &Context<'_>, user_id: uuid::Uuid) -> Result<Vec<Permission>> {
+        require_admin(ctx, "freshapi").await?;
+        
+        let user_service = ctx.data::<UserService>()?;
+        
+        use sea_orm::{JoinType, QuerySelect, RelationTrait};
+        
+        let permissions = crate::entities::user_permission::Entity::find()
+            .filter(crate::entities::user_permission::Column::UserId.eq(user_id))
+            .filter(crate::entities::user_permission::Column::IsGranted.eq(true))
+            .join(JoinType::InnerJoin, crate::entities::user_permission::Relation::Permission.def())
+            .select_only()
+            .column_as(crate::entities::permission::Column::Id, "id")
+            .column_as(crate::entities::permission::Column::Action, "action")
+            .column_as(crate::entities::permission::Column::ResourceId, "resource_id")
+            .column_as(crate::entities::permission::Column::Description, "description")
+            .column_as(crate::entities::permission::Column::IsActive, "is_active")
+            .column_as(crate::entities::permission::Column::CreatedAt, "created_at")
+            .column_as(crate::entities::permission::Column::UpdatedAt, "updated_at")
+            .into_model::<crate::entities::permission::Model>()
+            .all(user_service.get_db())
+            .await
+            .map_err(|e| Error::new(format!("Failed to fetch user permissions: {}", e)))?;
+
+        Ok(permissions.into_iter().map(|p| p.into()).collect())
     }
 }

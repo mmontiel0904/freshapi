@@ -1,9 +1,9 @@
 use async_graphql::*;
-use sea_orm::{EntityTrait, ActiveModelTrait, Set};
+use sea_orm::{EntityTrait, ActiveModelTrait, Set, ColumnTrait, QueryFilter, PaginatorTrait};
 use chrono::Utc;
 
 use crate::auth::require_user_management;
-use crate::graphql::types::{AcceptInvitationInput, AdminResetUserPasswordInput, AuthPayload, ChangePasswordInput, Invitation, InviteUserInput, InviteUserWithRoleInput, LoginInput, MessageResponse, RefreshTokenInput, RegisterInput, RequestPasswordResetInput, ResetPasswordInput, User, AssignRoleInput, Project, Task, CreateProjectInput, UpdateProjectInput, AddProjectMemberInput, UpdateMemberRoleInput, RemoveProjectMemberInput, CreateTaskInput, UpdateTaskInput, AssignTaskInput};
+use crate::graphql::types::{AcceptInvitationInput, AdminResetUserPasswordInput, AuthPayload, ChangePasswordInput, Invitation, InviteUserInput, InviteUserWithRoleInput, LoginInput, MessageResponse, RefreshTokenInput, RegisterInput, RequestPasswordResetInput, ResetPasswordInput, User, AssignRoleInput, Project, Task, CreateProjectInput, UpdateProjectInput, AddProjectMemberInput, UpdateMemberRoleInput, RemoveProjectMemberInput, CreateTaskInput, UpdateTaskInput, AssignTaskInput, Role, Permission, Resource, CreateRoleInput, UpdateRoleInput, CreatePermissionInput, UpdatePermissionInput, CreateResourceInput, UpdateResourceInput, AssignPermissionToRoleInput, RemovePermissionFromRoleInput, GrantUserPermissionInput, RevokeUserPermissionInput};
 use crate::services::{EmailService, InvitationService, UserService, ProjectService, TaskService, ProjectRole, TaskStatus, TaskPriority};
 
 pub struct MutationRoot;
@@ -478,6 +478,596 @@ impl MutationRoot {
             
         Ok(MessageResponse {
             message: "Task deleted successfully".to_string(),
+        })
+    }
+
+    // ========================================
+    // RBAC CRUD MUTATIONS - Admin Only
+    // ========================================
+
+    // Role Management
+    async fn create_role(&self, ctx: &Context<'_>, input: CreateRoleInput) -> Result<Role> {
+        use crate::auth::require_admin;
+        require_admin(ctx, "freshapi").await?;
+        
+        let user_service = ctx.data::<UserService>()?;
+        
+        // Check if role name already exists
+        let existing = crate::entities::role::Entity::find()
+            .filter(crate::entities::role::Column::Name.eq(&input.name))
+            .one(user_service.get_db())
+            .await
+            .map_err(|e| Error::new(format!("Database error: {}", e)))?;
+            
+        if existing.is_some() {
+            return Err(Error::new("Role name already exists"));
+        }
+        
+        let new_role = crate::entities::role::ActiveModel {
+            id: Set(uuid::Uuid::new_v4()),
+            name: Set(input.name),
+            description: Set(input.description),
+            level: Set(input.level),
+            is_active: Set(true),
+            created_at: Set(Utc::now().into()),
+            updated_at: Set(Utc::now().into()),
+        };
+        
+        let role = new_role
+            .insert(user_service.get_db())
+            .await
+            .map_err(|e| Error::new(format!("Failed to create role: {}", e)))?;
+            
+        Ok(role.into())
+    }
+
+    async fn update_role(&self, ctx: &Context<'_>, input: UpdateRoleInput) -> Result<Role> {
+        use crate::auth::require_admin;
+        require_admin(ctx, "freshapi").await?;
+        
+        let user_service = ctx.data::<UserService>()?;
+        
+        // Get existing role
+        let role = crate::entities::role::Entity::find_by_id(input.role_id)
+            .one(user_service.get_db())
+            .await
+            .map_err(|e| Error::new(format!("Database error: {}", e)))?
+            .ok_or_else(|| Error::new("Role not found"))?;
+            
+        // Check if new name conflicts (if changing name)
+        if let Some(ref new_name) = input.name {
+            if new_name != &role.name {
+                let existing = crate::entities::role::Entity::find()
+                    .filter(crate::entities::role::Column::Name.eq(new_name))
+                    .filter(crate::entities::role::Column::Id.ne(input.role_id))
+                    .one(user_service.get_db())
+                    .await
+                    .map_err(|e| Error::new(format!("Database error: {}", e)))?;
+                    
+                if existing.is_some() {
+                    return Err(Error::new("Role name already exists"));
+                }
+            }
+        }
+        
+        let mut active_role: crate::entities::role::ActiveModel = role.into();
+        
+        if let Some(name) = input.name {
+            active_role.name = Set(name);
+        }
+        if let Some(description) = input.description {
+            active_role.description = Set(description);
+        }
+        if let Some(level) = input.level {
+            active_role.level = Set(level);
+        }
+        if let Some(is_active) = input.is_active {
+            active_role.is_active = Set(is_active);
+        }
+        active_role.updated_at = Set(Utc::now().into());
+        
+        let updated_role = active_role
+            .update(user_service.get_db())
+            .await
+            .map_err(|e| Error::new(format!("Failed to update role: {}", e)))?;
+            
+        Ok(updated_role.into())
+    }
+
+    async fn delete_role(&self, ctx: &Context<'_>, role_id: uuid::Uuid) -> Result<MessageResponse> {
+        use crate::auth::require_admin;
+        require_admin(ctx, "freshapi").await?;
+        
+        let user_service = ctx.data::<UserService>()?;
+        
+        // Check if role exists
+        let role = crate::entities::role::Entity::find_by_id(role_id)
+            .one(user_service.get_db())
+            .await
+            .map_err(|e| Error::new(format!("Database error: {}", e)))?
+            .ok_or_else(|| Error::new("Role not found"))?;
+            
+        // Check if any users have this role
+        let user_count = crate::entities::user::Entity::find()
+            .filter(crate::entities::user::Column::RoleId.eq(role_id))
+            .count(user_service.get_db())
+            .await
+            .map_err(|e| Error::new(format!("Database error: {}", e)))?;
+            
+        if user_count > 0 {
+            return Err(Error::new(format!("Cannot delete role '{}' as it is assigned to {} user(s)", role.name, user_count)));
+        }
+        
+        // Use soft delete (set is_active to false) for safety
+        let mut active_role: crate::entities::role::ActiveModel = role.into();
+        active_role.is_active = Set(false);
+        active_role.updated_at = Set(Utc::now().into());
+        
+        active_role
+            .update(user_service.get_db())
+            .await
+            .map_err(|e| Error::new(format!("Failed to delete role: {}", e)))?;
+            
+        Ok(MessageResponse {
+            message: "Role deleted successfully".to_string(),
+        })
+    }
+
+    // Permission Management
+    async fn create_permission(&self, ctx: &Context<'_>, input: CreatePermissionInput) -> Result<Permission> {
+        use crate::auth::require_admin;
+        require_admin(ctx, "freshapi").await?;
+        
+        let user_service = ctx.data::<UserService>()?;
+        
+        // Check if permission already exists for this resource
+        let existing = crate::entities::permission::Entity::find()
+            .filter(crate::entities::permission::Column::Action.eq(&input.action))
+            .filter(crate::entities::permission::Column::ResourceId.eq(input.resource_id))
+            .one(user_service.get_db())
+            .await
+            .map_err(|e| Error::new(format!("Database error: {}", e)))?;
+            
+        if existing.is_some() {
+            return Err(Error::new("Permission already exists for this resource"));
+        }
+        
+        // Verify resource exists
+        let _resource = crate::entities::resource::Entity::find_by_id(input.resource_id)
+            .one(user_service.get_db())
+            .await
+            .map_err(|e| Error::new(format!("Database error: {}", e)))?
+            .ok_or_else(|| Error::new("Resource not found"))?;
+        
+        let new_permission = crate::entities::permission::ActiveModel {
+            id: Set(uuid::Uuid::new_v4()),
+            action: Set(input.action),
+            resource_id: Set(input.resource_id),
+            description: Set(input.description),
+            is_active: Set(true),
+            created_at: Set(Utc::now().into()),
+            updated_at: Set(Utc::now().into()),
+        };
+        
+        let permission = new_permission
+            .insert(user_service.get_db())
+            .await
+            .map_err(|e| Error::new(format!("Failed to create permission: {}", e)))?;
+            
+        Ok(permission.into())
+    }
+
+    async fn update_permission(&self, ctx: &Context<'_>, input: UpdatePermissionInput) -> Result<Permission> {
+        use crate::auth::require_admin;
+        require_admin(ctx, "freshapi").await?;
+        
+        let user_service = ctx.data::<UserService>()?;
+        
+        // Get existing permission
+        let permission = crate::entities::permission::Entity::find_by_id(input.permission_id)
+            .one(user_service.get_db())
+            .await
+            .map_err(|e| Error::new(format!("Database error: {}", e)))?
+            .ok_or_else(|| Error::new("Permission not found"))?;
+            
+        // Check for conflicts if changing action or resource
+        if input.action.is_some() || input.resource_id.is_some() {
+            let new_action = input.action.as_ref().unwrap_or(&permission.action);
+            let new_resource_id = input.resource_id.unwrap_or(permission.resource_id);
+            
+            if new_action != &permission.action || new_resource_id != permission.resource_id {
+                let existing = crate::entities::permission::Entity::find()
+                    .filter(crate::entities::permission::Column::Action.eq(new_action))
+                    .filter(crate::entities::permission::Column::ResourceId.eq(new_resource_id))
+                    .filter(crate::entities::permission::Column::Id.ne(input.permission_id))
+                    .one(user_service.get_db())
+                    .await
+                    .map_err(|e| Error::new(format!("Database error: {}", e)))?;
+                    
+                if existing.is_some() {
+                    return Err(Error::new("Permission already exists for this resource"));
+                }
+            }
+        }
+        
+        // Verify new resource exists if changing
+        if let Some(resource_id) = input.resource_id {
+            let _resource = crate::entities::resource::Entity::find_by_id(resource_id)
+                .one(user_service.get_db())
+                .await
+                .map_err(|e| Error::new(format!("Database error: {}", e)))?
+                .ok_or_else(|| Error::new("Resource not found"))?;
+        }
+        
+        let mut active_permission: crate::entities::permission::ActiveModel = permission.into();
+        
+        if let Some(action) = input.action {
+            active_permission.action = Set(action);
+        }
+        if let Some(resource_id) = input.resource_id {
+            active_permission.resource_id = Set(resource_id);
+        }
+        if let Some(description) = input.description {
+            active_permission.description = Set(description);
+        }
+        if let Some(is_active) = input.is_active {
+            active_permission.is_active = Set(is_active);
+        }
+        active_permission.updated_at = Set(Utc::now().into());
+        
+        let updated_permission = active_permission
+            .update(user_service.get_db())
+            .await
+            .map_err(|e| Error::new(format!("Failed to update permission: {}", e)))?;
+            
+        Ok(updated_permission.into())
+    }
+
+    async fn delete_permission(&self, ctx: &Context<'_>, permission_id: uuid::Uuid) -> Result<MessageResponse> {
+        use crate::auth::require_admin;
+        require_admin(ctx, "freshapi").await?;
+        
+        let user_service = ctx.data::<UserService>()?;
+        
+        // Check if permission exists
+        let permission = crate::entities::permission::Entity::find_by_id(permission_id)
+            .one(user_service.get_db())
+            .await
+            .map_err(|e| Error::new(format!("Database error: {}", e)))?
+            .ok_or_else(|| Error::new("Permission not found"))?;
+            
+        // Check if any roles have this permission
+        let role_count = crate::entities::role_permission::Entity::find()
+            .filter(crate::entities::role_permission::Column::PermissionId.eq(permission_id))
+            .count(user_service.get_db())
+            .await
+            .map_err(|e| Error::new(format!("Database error: {}", e)))?;
+            
+        // Check if any users have this permission directly
+        let user_count = crate::entities::user_permission::Entity::find()
+            .filter(crate::entities::user_permission::Column::PermissionId.eq(permission_id))
+            .count(user_service.get_db())
+            .await
+            .map_err(|e| Error::new(format!("Database error: {}", e)))?;
+            
+        if role_count > 0 || user_count > 0 {
+            return Err(Error::new(format!("Cannot delete permission '{}' as it is assigned to {} role(s) and {} user(s)", permission.action, role_count, user_count)));
+        }
+        
+        // Use soft delete (set is_active to false) for safety
+        let mut active_permission: crate::entities::permission::ActiveModel = permission.into();
+        active_permission.is_active = Set(false);
+        active_permission.updated_at = Set(Utc::now().into());
+        
+        active_permission
+            .update(user_service.get_db())
+            .await
+            .map_err(|e| Error::new(format!("Failed to delete permission: {}", e)))?;
+            
+        Ok(MessageResponse {
+            message: "Permission deleted successfully".to_string(),
+        })
+    }
+
+    // Resource Management
+    async fn create_resource(&self, ctx: &Context<'_>, input: CreateResourceInput) -> Result<Resource> {
+        use crate::auth::require_admin;
+        require_admin(ctx, "freshapi").await?;
+        
+        let user_service = ctx.data::<UserService>()?;
+        
+        // Check if resource name already exists
+        let existing = crate::entities::resource::Entity::find()
+            .filter(crate::entities::resource::Column::Name.eq(&input.name))
+            .one(user_service.get_db())
+            .await
+            .map_err(|e| Error::new(format!("Database error: {}", e)))?;
+            
+        if existing.is_some() {
+            return Err(Error::new("Resource name already exists"));
+        }
+        
+        let new_resource = crate::entities::resource::ActiveModel {
+            id: Set(uuid::Uuid::new_v4()),
+            name: Set(input.name),
+            description: Set(input.description),
+            is_active: Set(true),
+            created_at: Set(Utc::now().into()),
+            updated_at: Set(Utc::now().into()),
+        };
+        
+        let resource = new_resource
+            .insert(user_service.get_db())
+            .await
+            .map_err(|e| Error::new(format!("Failed to create resource: {}", e)))?;
+            
+        Ok(resource.into())
+    }
+
+    async fn update_resource(&self, ctx: &Context<'_>, input: UpdateResourceInput) -> Result<Resource> {
+        use crate::auth::require_admin;
+        require_admin(ctx, "freshapi").await?;
+        
+        let user_service = ctx.data::<UserService>()?;
+        
+        // Get existing resource
+        let resource = crate::entities::resource::Entity::find_by_id(input.resource_id)
+            .one(user_service.get_db())
+            .await
+            .map_err(|e| Error::new(format!("Database error: {}", e)))?
+            .ok_or_else(|| Error::new("Resource not found"))?;
+            
+        // Check if new name conflicts (if changing name)
+        if let Some(ref new_name) = input.name {
+            if new_name != &resource.name {
+                let existing = crate::entities::resource::Entity::find()
+                    .filter(crate::entities::resource::Column::Name.eq(new_name))
+                    .filter(crate::entities::resource::Column::Id.ne(input.resource_id))
+                    .one(user_service.get_db())
+                    .await
+                    .map_err(|e| Error::new(format!("Database error: {}", e)))?;
+                    
+                if existing.is_some() {
+                    return Err(Error::new("Resource name already exists"));
+                }
+            }
+        }
+        
+        let mut active_resource: crate::entities::resource::ActiveModel = resource.into();
+        
+        if let Some(name) = input.name {
+            active_resource.name = Set(name);
+        }
+        if let Some(description) = input.description {
+            active_resource.description = Set(description);
+        }
+        if let Some(is_active) = input.is_active {
+            active_resource.is_active = Set(is_active);
+        }
+        active_resource.updated_at = Set(Utc::now().into());
+        
+        let updated_resource = active_resource
+            .update(user_service.get_db())
+            .await
+            .map_err(|e| Error::new(format!("Failed to update resource: {}", e)))?;
+            
+        Ok(updated_resource.into())
+    }
+
+    async fn delete_resource(&self, ctx: &Context<'_>, resource_id: uuid::Uuid) -> Result<MessageResponse> {
+        use crate::auth::require_admin;
+        require_admin(ctx, "freshapi").await?;
+        
+        let user_service = ctx.data::<UserService>()?;
+        
+        // Check if resource exists
+        let resource = crate::entities::resource::Entity::find_by_id(resource_id)
+            .one(user_service.get_db())
+            .await
+            .map_err(|e| Error::new(format!("Database error: {}", e)))?
+            .ok_or_else(|| Error::new("Resource not found"))?;
+            
+        // Check if any permissions use this resource
+        let permission_count = crate::entities::permission::Entity::find()
+            .filter(crate::entities::permission::Column::ResourceId.eq(resource_id))
+            .count(user_service.get_db())
+            .await
+            .map_err(|e| Error::new(format!("Database error: {}", e)))?;
+            
+        if permission_count > 0 {
+            return Err(Error::new(format!("Cannot delete resource '{}' as it has {} permission(s) associated with it", resource.name, permission_count)));
+        }
+        
+        // Use soft delete (set is_active to false) for safety
+        let mut active_resource: crate::entities::resource::ActiveModel = resource.into();
+        active_resource.is_active = Set(false);
+        active_resource.updated_at = Set(Utc::now().into());
+        
+        active_resource
+            .update(user_service.get_db())
+            .await
+            .map_err(|e| Error::new(format!("Failed to delete resource: {}", e)))?;
+            
+        Ok(MessageResponse {
+            message: "Resource deleted successfully".to_string(),
+        })
+    }
+
+    // Role-Permission Assignment
+    async fn assign_permission_to_role(&self, ctx: &Context<'_>, input: AssignPermissionToRoleInput) -> Result<MessageResponse> {
+        use crate::auth::require_admin;
+        require_admin(ctx, "freshapi").await?;
+        
+        let user_service = ctx.data::<UserService>()?;
+        
+        // Verify role and permission exist
+        let _role = crate::entities::role::Entity::find_by_id(input.role_id)
+            .one(user_service.get_db())
+            .await
+            .map_err(|e| Error::new(format!("Database error: {}", e)))?
+            .ok_or_else(|| Error::new("Role not found"))?;
+            
+        let _permission = crate::entities::permission::Entity::find_by_id(input.permission_id)
+            .one(user_service.get_db())
+            .await
+            .map_err(|e| Error::new(format!("Database error: {}", e)))?
+            .ok_or_else(|| Error::new("Permission not found"))?;
+        
+        // Check if assignment already exists
+        let existing = crate::entities::role_permission::Entity::find()
+            .filter(crate::entities::role_permission::Column::RoleId.eq(input.role_id))
+            .filter(crate::entities::role_permission::Column::PermissionId.eq(input.permission_id))
+            .one(user_service.get_db())
+            .await
+            .map_err(|e| Error::new(format!("Database error: {}", e)))?;
+            
+        if existing.is_some() {
+            return Ok(MessageResponse {
+                message: "Permission already assigned to role".to_string(),
+            });
+        }
+        
+        let role_permission = crate::entities::role_permission::ActiveModel {
+            id: Set(uuid::Uuid::new_v4()),
+            role_id: Set(input.role_id),
+            permission_id: Set(input.permission_id),
+            created_at: Set(Utc::now().into()),
+        };
+        
+        role_permission
+            .insert(user_service.get_db())
+            .await
+            .map_err(|e| Error::new(format!("Failed to assign permission: {}", e)))?;
+            
+        Ok(MessageResponse {
+            message: "Permission assigned to role successfully".to_string(),
+        })
+    }
+
+    async fn remove_permission_from_role(&self, ctx: &Context<'_>, input: RemovePermissionFromRoleInput) -> Result<MessageResponse> {
+        use crate::auth::require_admin;
+        require_admin(ctx, "freshapi").await?;
+        
+        let user_service = ctx.data::<UserService>()?;
+        
+        let deleted = crate::entities::role_permission::Entity::delete_many()
+            .filter(crate::entities::role_permission::Column::RoleId.eq(input.role_id))
+            .filter(crate::entities::role_permission::Column::PermissionId.eq(input.permission_id))
+            .exec(user_service.get_db())
+            .await
+            .map_err(|e| Error::new(format!("Failed to remove permission: {}", e)))?;
+            
+        if deleted.rows_affected == 0 {
+            return Err(Error::new("Permission was not assigned to this role"));
+        }
+        
+        Ok(MessageResponse {
+            message: "Permission removed from role successfully".to_string(),
+        })
+    }
+
+    // User Direct Permission Management
+    async fn grant_user_permission(&self, ctx: &Context<'_>, input: GrantUserPermissionInput) -> Result<MessageResponse> {
+        use crate::auth::require_admin;
+        require_admin(ctx, "freshapi").await?;
+        
+        let user_service = ctx.data::<UserService>()?;
+        
+        // Verify user and permission exist
+        let _user = crate::entities::user::Entity::find_by_id(input.user_id)
+            .one(user_service.get_db())
+            .await
+            .map_err(|e| Error::new(format!("Database error: {}", e)))?
+            .ok_or_else(|| Error::new("User not found"))?;
+            
+        let _permission = crate::entities::permission::Entity::find_by_id(input.permission_id)
+            .one(user_service.get_db())
+            .await
+            .map_err(|e| Error::new(format!("Database error: {}", e)))?
+            .ok_or_else(|| Error::new("Permission not found"))?;
+        
+        // Check if permission already granted
+        let existing = crate::entities::user_permission::Entity::find()
+            .filter(crate::entities::user_permission::Column::UserId.eq(input.user_id))
+            .filter(crate::entities::user_permission::Column::PermissionId.eq(input.permission_id))
+            .one(user_service.get_db())
+            .await
+            .map_err(|e| Error::new(format!("Database error: {}", e)))?;
+            
+        if let Some(existing_perm) = existing {
+            if existing_perm.is_granted {
+                return Ok(MessageResponse {
+                    message: "Permission already granted to user".to_string(),
+                });
+            } else {
+                // Update existing record to grant permission
+                let mut active_permission: crate::entities::user_permission::ActiveModel = existing_perm.into();
+                active_permission.is_granted = Set(true);
+                active_permission.updated_at = Set(Utc::now().into());
+                
+                active_permission
+                    .update(user_service.get_db())
+                    .await
+                    .map_err(|e| Error::new(format!("Failed to grant permission: {}", e)))?;
+            }
+        } else {
+            // Create new permission grant
+            let user_permission = crate::entities::user_permission::ActiveModel {
+                id: Set(uuid::Uuid::new_v4()),
+                user_id: Set(input.user_id),
+                permission_id: Set(input.permission_id),
+                is_granted: Set(true),
+                created_at: Set(Utc::now().into()),
+                updated_at: Set(Utc::now().into()),
+            };
+            
+            user_permission
+                .insert(user_service.get_db())
+                .await
+                .map_err(|e| Error::new(format!("Failed to grant permission: {}", e)))?;
+        }
+        
+        Ok(MessageResponse {
+            message: "Permission granted to user successfully".to_string(),
+        })
+    }
+
+    async fn revoke_user_permission(&self, ctx: &Context<'_>, input: RevokeUserPermissionInput) -> Result<MessageResponse> {
+        use crate::auth::require_admin;
+        require_admin(ctx, "freshapi").await?;
+        
+        let user_service = ctx.data::<UserService>()?;
+        
+        // Find existing permission
+        let existing = crate::entities::user_permission::Entity::find()
+            .filter(crate::entities::user_permission::Column::UserId.eq(input.user_id))
+            .filter(crate::entities::user_permission::Column::PermissionId.eq(input.permission_id))
+            .one(user_service.get_db())
+            .await
+            .map_err(|e| Error::new(format!("Database error: {}", e)))?;
+            
+        if let Some(existing_perm) = existing {
+            if !existing_perm.is_granted {
+                return Ok(MessageResponse {
+                    message: "Permission already revoked from user".to_string(),
+                });
+            }
+            
+            // Update to revoke permission (set is_granted to false)
+            let mut active_permission: crate::entities::user_permission::ActiveModel = existing_perm.into();
+            active_permission.is_granted = Set(false);
+            active_permission.updated_at = Set(Utc::now().into());
+            
+            active_permission
+                .update(user_service.get_db())
+                .await
+                .map_err(|e| Error::new(format!("Failed to revoke permission: {}", e)))?;
+        } else {
+            return Err(Error::new("User does not have this permission"));
+        }
+        
+        Ok(MessageResponse {
+            message: "Permission revoked from user successfully".to_string(),
         })
     }
 }
