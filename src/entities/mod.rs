@@ -2,6 +2,8 @@
 
 pub mod prelude;
 
+pub mod activity;
+pub mod activity_comment;
 pub mod invitation;
 pub mod permission;
 pub mod project;

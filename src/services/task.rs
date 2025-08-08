@@ -2,78 +2,23 @@ use sea_orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, QuerySelect, Set,
 };
 use uuid::Uuid;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Utc, Datelike, Weekday, Duration};
 
 use crate::entities::{prelude::*, task, project};
-use crate::services::ProjectService;
+use crate::services::{ProjectService, ActivityService};
+// EntityType imported when needed
+use crate::graphql::types::{TaskStatus, TaskPriority, RecurrenceType};
 
 #[derive(Clone)]
 pub struct TaskService {
     db: DatabaseConnection,
     project_service: ProjectService,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum TaskStatus {
-    Todo,
-    InProgress,
-    Completed,
-    Cancelled,
-}
-
-impl TaskStatus {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            TaskStatus::Todo => "todo",
-            TaskStatus::InProgress => "in_progress",
-            TaskStatus::Completed => "completed",
-            TaskStatus::Cancelled => "cancelled",
-        }
-    }
-
-    pub fn from_str(s: &str) -> Option<Self> {
-        match s {
-            "todo" => Some(TaskStatus::Todo),
-            "in_progress" => Some(TaskStatus::InProgress),
-            "completed" => Some(TaskStatus::Completed),
-            "cancelled" => Some(TaskStatus::Cancelled),
-            _ => None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum TaskPriority {
-    Low,
-    Medium,
-    High,
-    Urgent,
-}
-
-impl TaskPriority {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            TaskPriority::Low => "low",
-            TaskPriority::Medium => "medium",
-            TaskPriority::High => "high",
-            TaskPriority::Urgent => "urgent",
-        }
-    }
-
-    pub fn from_str(s: &str) -> Option<Self> {
-        match s {
-            "low" => Some(TaskPriority::Low),
-            "medium" => Some(TaskPriority::Medium),
-            "high" => Some(TaskPriority::High),
-            "urgent" => Some(TaskPriority::Urgent),
-            _ => None,
-        }
-    }
+    activity_service: ActivityService,
 }
 
 impl TaskService {
-    pub fn new(db: DatabaseConnection, project_service: ProjectService) -> Self {
-        Self { db, project_service }
+    pub fn new(db: DatabaseConnection, project_service: ProjectService, activity_service: ActivityService) -> Self {
+        Self { db, project_service, activity_service }
     }
 
     pub fn get_db(&self) -> &DatabaseConnection {
@@ -89,6 +34,8 @@ impl TaskService {
         description: Option<String>,
         assignee_id: Option<Uuid>,
         priority: Option<TaskPriority>,
+        recurrence_type: Option<RecurrenceType>,
+        recurrence_day: Option<i32>,
         due_date: Option<DateTime<Utc>>,
     ) -> Result<task::Model, Box<dyn std::error::Error>> {
         // Check if user can create tasks in this project
@@ -121,26 +68,41 @@ impl TaskService {
             }
         }
 
+        let recurrence = recurrence_type.unwrap_or(RecurrenceType::None);
+        let is_recurring = recurrence != RecurrenceType::None;
+        let next_due_date = if is_recurring && due_date.is_some() {
+            Some(self.calculate_next_due_date(due_date.unwrap(), &recurrence, recurrence_day)?)
+        } else {
+            None
+        };
+
+        let task_id = Uuid::new_v4();
         let new_task = task::ActiveModel {
-            id: Set(Uuid::new_v4()),
+            id: Set(task_id),
             name: Set(name.to_string()),
             description: Set(description),
             project_id: Set(project_id),
             assignee_id: Set(assignee_id),
             creator_id: Set(creator_id),
             status: Set(TaskStatus::Todo.as_str().to_string()),
-            priority: Set(
-                priority
-                    .unwrap_or(TaskPriority::Medium)
-                    .as_str()
-                    .to_string()
-            ),
+            priority: Set(priority.unwrap_or(TaskPriority::Medium).as_str().to_string()),
+            recurrence_type: Set(recurrence.as_str().to_string()),
+            recurrence_day: Set(recurrence_day),
+            is_recurring: Set(is_recurring),
+            parent_task_id: Set(None),
             due_date: Set(due_date.map(|dt| dt.into())),
+            next_due_date: Set(next_due_date.map(|dt| dt.into())),
             created_at: Set(Utc::now().into()),
             updated_at: Set(Utc::now().into()),
         };
 
         let task = new_task.insert(&self.db).await?;
+
+        // Log task creation activity
+        self.activity_service
+            .log_task_creation(task.id, creator_id, name, false, None)
+            .await?;
+
         Ok(task)
     }
 
@@ -251,6 +213,8 @@ impl TaskService {
         description: Option<Option<String>>,
         status: Option<TaskStatus>,
         priority: Option<TaskPriority>,
+        recurrence_type: Option<RecurrenceType>,
+        recurrence_day: Option<Option<i32>>,
         due_date: Option<Option<DateTime<Utc>>>,
     ) -> Result<task::Model, Box<dyn std::error::Error>> {
         let task = Task::find_by_id(task_id)
@@ -279,12 +243,12 @@ impl TaskService {
 
         let mut task_active: task::ActiveModel = task.into();
 
-        if let Some(name) = name {
-            task_active.name = Set(name);
+        if let Some(ref name) = name {
+            task_active.name = Set(name.clone());
         }
 
-        if let Some(description) = description {
-            task_active.description = Set(description);
+        if let Some(ref description) = description {
+            task_active.description = Set(description.clone());
         }
 
         if let Some(status) = status {
@@ -295,6 +259,15 @@ impl TaskService {
             task_active.priority = Set(priority.as_str().to_string());
         }
 
+        if let Some(recurrence_type) = recurrence_type {
+            task_active.recurrence_type = Set(recurrence_type.as_str().to_string());
+            task_active.is_recurring = Set(recurrence_type != RecurrenceType::None);
+        }
+
+        if let Some(recurrence_day) = recurrence_day {
+            task_active.recurrence_day = Set(recurrence_day);
+        }
+
         if let Some(due_date) = due_date {
             task_active.due_date = Set(due_date.map(|dt| dt.into()));
         }
@@ -302,6 +275,22 @@ impl TaskService {
         task_active.updated_at = Set(Utc::now().into());
 
         let updated_task = task_active.update(&self.db).await?;
+
+        // Log task update activity
+        let field_changes = serde_json::json!({
+            "name": name,
+            "description": description,
+            "status": status.map(|s| s.as_str()),
+            "priority": priority.map(|p| p.as_str()),
+            "recurrence_type": recurrence_type.map(|r| r.as_str()),
+            "recurrence_day": recurrence_day,
+            "due_date": due_date
+        });
+
+        self.activity_service
+            .log_task_update(task_id, user_id, field_changes)
+            .await?;
+
         Ok(updated_task)
     }
 
@@ -440,6 +429,153 @@ impl TaskService {
             cancelled,
             overdue,
         })
+    }
+
+    /// Calculate next due date based on recurrence pattern
+    fn calculate_next_due_date(
+        &self,
+        current_due: DateTime<Utc>,
+        recurrence: &RecurrenceType,
+        recurrence_day: Option<i32>,
+    ) -> Result<DateTime<Utc>, Box<dyn std::error::Error>> {
+        match recurrence {
+            RecurrenceType::None => Ok(current_due),
+            RecurrenceType::Daily => Ok(current_due + Duration::days(1)),
+            RecurrenceType::Weekdays => {
+                let mut next = current_due + Duration::days(1);
+                // Skip weekends
+                while next.weekday() == Weekday::Sat || next.weekday() == Weekday::Sun {
+                    next = next + Duration::days(1);
+                }
+                Ok(next)
+            },
+            RecurrenceType::Weekly => Ok(current_due + Duration::weeks(1)),
+            RecurrenceType::Monthly => {
+                if let Some(day) = recurrence_day {
+                    // Try to set to the same day next month
+                    let mut next_month = if current_due.month() == 12 {
+                        current_due.with_year(current_due.year() + 1).unwrap().with_month(1).unwrap()
+                    } else {
+                        current_due.with_month(current_due.month() + 1).unwrap()
+                    };
+                    
+                    // Handle end-of-month cases
+                    let target_day = std::cmp::min(day as u32, days_in_month(next_month.year(), next_month.month()));
+                    next_month = next_month.with_day(target_day).unwrap();
+                    Ok(next_month)
+                } else {
+                    // Default to same day next month
+                    Ok(current_due + Duration::days(30))
+                }
+            },
+        }
+    }
+
+    /// Complete a task and create recurring instance if needed
+    pub async fn complete_task_with_recurrence(
+        &self,
+        task_id: Uuid,
+        actor_id: Uuid,
+    ) -> Result<Option<task::Model>, Box<dyn std::error::Error>> {
+        let task = Task::find_by_id(task_id)
+            .one(&self.db)
+            .await?
+            .ok_or("Task not found")?;
+
+        // Check permissions
+        let user_role = self
+            .project_service
+            .get_user_project_role(task.project_id, actor_id)
+            .await?;
+
+        let can_complete = match user_role {
+            Some(role) if role.can_manage_tasks() => true,
+            _ => task.creator_id == actor_id || task.assignee_id == Some(actor_id),
+        };
+
+        if !can_complete {
+            return Err("Insufficient permissions to complete this task".into());
+        }
+
+        // Update task status to completed
+        let mut task_active: task::ActiveModel = task.clone().into();
+        task_active.status = Set(TaskStatus::Completed.as_str().to_string());
+        task_active.updated_at = Set(Utc::now().into());
+
+        let _completed_task = task_active.update(&self.db).await?;
+
+        // Create next recurring instance if needed
+        let next_instance = if task.is_recurring {
+            let next_due = if let Some(current_due) = &task.due_date {
+                let due_utc: DateTime<Utc> = current_due.clone().into();
+                Some(self.calculate_next_due_date(
+                    due_utc,
+                    &RecurrenceType::from_str(&task.recurrence_type).unwrap_or(RecurrenceType::None),
+                    task.recurrence_day,
+                )?)
+            } else {
+                None
+            };
+
+            let next_task = task::ActiveModel {
+                id: Set(Uuid::new_v4()),
+                name: Set(task.name.clone()),
+                description: Set(task.description.clone()),
+                project_id: Set(task.project_id),
+                assignee_id: Set(task.assignee_id),
+                creator_id: Set(task.creator_id),
+                status: Set(TaskStatus::Todo.as_str().to_string()),
+                priority: Set(task.priority.clone()),
+                recurrence_type: Set(task.recurrence_type.clone()),
+                recurrence_day: Set(task.recurrence_day),
+                is_recurring: Set(true),
+                parent_task_id: Set(Some(task_id)),
+                due_date: Set(next_due.map(|dt| dt.into())),
+                next_due_date: Set(None), // Will be calculated when this task is completed
+                created_at: Set(Utc::now().into()),
+                updated_at: Set(Utc::now().into()),
+            };
+
+            let created_instance = next_task.insert(&self.db).await?;
+
+            // Log recurring instance creation
+            self.activity_service
+                .log_task_creation(
+                    created_instance.id,
+                    task.creator_id,
+                    &task.name,
+                    true,
+                    Some(task_id),
+                )
+                .await?;
+
+            Some(created_instance)
+        } else {
+            None
+        };
+
+        // Log task completion activity
+        self.activity_service
+            .log_task_completion(task_id, actor_id, next_instance.as_ref().map(|t| t.id))
+            .await?;
+
+        Ok(next_instance)
+    }
+}
+
+// Helper function to get days in a month
+fn days_in_month(year: i32, month: u32) -> u32 {
+    match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 => {
+            if (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0) {
+                29
+            } else {
+                28
+            }
+        },
+        _ => 30,
     }
 }
 

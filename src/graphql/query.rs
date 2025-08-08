@@ -4,7 +4,8 @@ use sea_orm::{EntityTrait, ColumnTrait, QueryFilter, QueryOrder};
 use crate::auth::{AuthenticatedUser, PermissionService, require_admin};
 use crate::graphql::types::{Invitation, User, Role, RoleWithPermissions, Permission, Resource, UserWithRole, Project, Task, TaskStats};
 use crate::graphql::DataLoaderContext;
-use crate::services::{InvitationService, UserService, ProjectService, TaskService, TaskStatus};
+use crate::services::{InvitationService, UserService, ProjectService, TaskService};
+use crate::graphql::types::TaskStatus;
 
 pub struct QueryRoot;
 

@@ -17,7 +17,12 @@ pub struct Model {
     pub creator_id: Uuid,
     pub status: String,
     pub priority: String,
+    pub recurrence_type: String,
+    pub recurrence_day: Option<i32>,
+    pub is_recurring: bool,
+    pub parent_task_id: Option<Uuid>,
     pub due_date: Option<DateTimeWithTimeZone>,
+    pub next_due_date: Option<DateTimeWithTimeZone>,
     pub created_at: DateTimeWithTimeZone,
     pub updated_at: DateTimeWithTimeZone,
 }
@@ -48,6 +53,14 @@ pub enum Relation {
         on_delete = "Cascade"
     )]
     User1,
+    #[sea_orm(
+        belongs_to = "Entity",
+        from = "Column::ParentTaskId",
+        to = "Column::Id",
+        on_update = "NoAction",
+        on_delete = "SetNull"
+    )]
+    SelfRef,
 }
 
 impl Related<super::project::Entity> for Entity {

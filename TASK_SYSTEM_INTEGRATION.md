@@ -1,18 +1,56 @@
 # Task System Frontend Integration Guide
 
-This guide shows how to integrate the new **Task Tracking System** with your TypeScript/Vue.js frontend. This complements the main [FRONTEND_INTEGRATION.md](./FRONTEND_INTEGRATION.md) document by focusing specifically on project and task management features.
+This guide shows how to integrate the new **Task Tracking System** with **Recurring Tasks** and **Activity Logging** features with your TypeScript/Vue.js frontend. This complements the main [FRONTEND_INTEGRATION.md](./FRONTEND_INTEGRATION.md) document by focusing specifically on project and task management features.
 
 ## 🎯 Task System Overview
 
 The task system provides comprehensive project and task management with:
 - **Project Management**: Create, manage, and organize projects with team members
 - **Task Tracking**: Full task lifecycle with status, priority, and assignment management
+- **Recurring Tasks**: Automated task creation with flexible recurrence patterns (daily, weekdays, weekly, monthly)
+- **Activity Logging**: Complete audit trail and commenting system for all entities
 - **Role-Based Access**: Project-level permissions with hierarchical roles
 - **RBAC Integration**: Seamless integration with the existing permission system
+- **Type-Safe Enums**: GraphQL introspection-enabled enums for better frontend DX
 
 ## 📋 Schema Reference
 
 ### Key GraphQL Types
+
+#### Type-Safe Enums (GraphQL Introspection Enabled)
+
+```graphql
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum RecurrenceType {
+  NONE
+  DAILY       # Every day
+  WEEKDAYS    # Monday-Friday only
+  WEEKLY      # Same day each week  
+  MONTHLY     # Same day of month
+}
+
+enum EntityType {
+  TASK
+  PROJECT
+  USER
+  SETTINGS
+}
+```
+
+#### Core Types
 
 ```graphql
 type Project {
@@ -27,7 +65,7 @@ type Project {
   # Related data (auto-resolved)
   owner: User
   members: [ProjectMember!]!
-  tasks(status: String, assigneeId: UUID, limit: Int, offset: Int): [Task!]!
+  tasks(status: TaskStatus, assigneeId: UUID, limit: Int, offset: Int): [Task!]!
 }
 
 type Task {
@@ -37,8 +75,16 @@ type Task {
   projectId: UUID!
   assigneeId: UUID
   creatorId: UUID!
-  status: String!        # "todo", "in_progress", "completed", "cancelled"
-  priority: String!      # "low", "medium", "high", "urgent"
+  status: TaskStatus!
+  priority: TaskPriority!
+  
+  # Recurring task fields
+  recurrenceType: RecurrenceType!
+  recurrenceDay: Int              # For monthly: day of month (1-31), for weekly: day of week (1-7)
+  isRecurring: Boolean!
+  parentTaskId: UUID              # Links to original recurring task
+  nextDueDate: DateTime           # When to create next instance
+  
   dueDate: DateTime
   createdAt: DateTime!
   updatedAt: DateTime!
@@ -47,6 +93,25 @@ type Task {
   project: Project
   assignee: User
   creator: User!
+  parentTask: Task                # Original recurring task
+  recurringInstances(limit: Int): [Task!]!  # Child recurring instances
+  activities(limit: Int, offset: Int): [Activity!]!
+  activityCount: Int!
+}
+
+type Activity {
+  id: UUID!
+  entityType: String!             # "task", "project", "user", "settings"
+  entityId: UUID!
+  actorId: UUID!
+  actionType: String!             # "created", "updated", "completed", "commented", etc.
+  description: String
+  createdAt: DateTime!
+  
+  # Related data (auto-resolved)
+  actor: User
+  metadataJson: String            # JSON string of metadata
+  changesJson: String             # JSON string of field changes
 }
 
 type ProjectMember {
@@ -65,6 +130,128 @@ type TaskStats {
   completed: Int!
   cancelled: Int!
   overdue: Int!
+}
+```
+
+#### Input Types
+
+```graphql
+input CreateTaskInput {
+  projectId: UUID!
+  name: String!
+  description: String
+  assigneeId: UUID
+  priority: TaskPriority          # Default: MEDIUM
+  recurrenceType: RecurrenceType  # Default: NONE
+  recurrenceDay: Int              # Required for MONTHLY (1-31) or WEEKLY (1-7)
+  dueDate: DateTime
+}
+
+input UpdateTaskInput {
+  taskId: UUID!
+  name: String
+  description: String
+  status: TaskStatus
+  priority: TaskPriority
+  recurrenceType: RecurrenceType
+  recurrenceDay: Int
+  dueDate: DateTime
+}
+
+input AddCommentInput {
+  entityType: EntityType!         # TASK, PROJECT, USER, SETTINGS
+  entityId: UUID!
+  content: String!
+  mentions: [UUID!]               # User IDs to mention
+}
+```
+
+#### New Queries and Mutations
+
+```graphql
+# Recurring task mutations
+mutation CompleteTaskWithRecurrence($taskId: UUID!) {
+  completeTaskWithRecurrence(taskId: $taskId) {
+    originalTask: Task
+    nextInstance: Task           # Null if not recurring
+  }
+}
+
+# Activity system
+query GetActivities($entityType: EntityType!, $entityId: UUID!, $limit: Int, $offset: Int) {
+  activities(entityType: $entityType, entityId: $entityId, limit: $limit, offset: $offset) {
+    id
+    actionType
+    description
+    createdAt
+    actor {
+      id
+      email
+      firstName
+      lastName
+    }
+    metadataJson
+    changesJson
+  }
+}
+
+mutation AddComment($input: AddCommentInput!) {
+  addComment(input: $input) {
+    id
+    description
+    createdAt
+    actor {
+      id
+      email
+      firstName
+      lastName
+    }
+  }
+}
+
+# Enhanced task queries with new fields
+query GetTask($taskId: UUID!) {
+  task(taskId: $taskId) {
+    id
+    name
+    description
+    status
+    priority
+    recurrenceType
+    recurrenceDay
+    isRecurring
+    parentTaskId
+    dueDate
+    nextDueDate
+    
+    parentTask {
+      id
+      name
+    }
+    
+    recurringInstances(limit: 10) {
+      id
+      name
+      status
+      dueDate
+      createdAt
+    }
+    
+    activities(limit: 20) {
+      id
+      actionType
+      description
+      createdAt
+      actor {
+        id
+        email
+        firstName
+        lastName
+      }
+    }
+    
+    activityCount
+  }
 }
 ```
 
@@ -419,19 +606,27 @@ export function useTasks() {
   const loading = ref(false)
   const error = ref<string | null>(null)
 
-  // Task status and priority constants
+  // Type-safe enum constants (matching GraphQL enums)
   const TASK_STATUS = {
-    TODO: 'todo',
-    IN_PROGRESS: 'in_progress',
-    COMPLETED: 'completed',
-    CANCELLED: 'cancelled'
+    TODO: 'TODO',
+    IN_PROGRESS: 'IN_PROGRESS',
+    COMPLETED: 'COMPLETED',
+    CANCELLED: 'CANCELLED'
   } as const
 
   const TASK_PRIORITY = {
-    LOW: 'low',
-    MEDIUM: 'medium',
-    HIGH: 'high',
-    URGENT: 'urgent'
+    LOW: 'LOW',
+    MEDIUM: 'MEDIUM',
+    HIGH: 'HIGH',
+    URGENT: 'URGENT'
+  } as const
+
+  const RECURRENCE_TYPE = {
+    NONE: 'NONE',
+    DAILY: 'DAILY',
+    WEEKDAYS: 'WEEKDAYS', 
+    WEEKLY: 'WEEKLY',
+    MONTHLY: 'MONTHLY'
   } as const
 
   // GraphQL Queries and Mutations
@@ -907,6 +1102,305 @@ export function useProjectMembers() {
     addProjectMember,
     updateMemberRole,
     removeProjectMember
+  }
+}
+```
+
+### Recurring Tasks Composable
+
+```typescript
+// composables/useRecurringTasks.ts
+import { ref } from 'vue'
+import { useApolloClient } from '@vue/apollo-composable'
+import type { Task } from '@/generated/graphql'
+
+export function useRecurringTasks() {
+  const apolloClient = useApolloClient()
+  const loading = ref(false)
+  const error = ref<string | null>(null)
+
+  const COMPLETE_TASK_WITH_RECURRENCE_MUTATION = gql`
+    mutation CompleteTaskWithRecurrence($taskId: UUID!) {
+      completeTaskWithRecurrence(taskId: $taskId) {
+        originalTask {
+          id
+          status
+          updatedAt
+        }
+        nextInstance {
+          id
+          name
+          status
+          dueDate
+          parentTaskId
+          createdAt
+        }
+      }
+    }
+  `
+
+  const completeRecurringTask = async (taskId: string): Promise<{
+    originalTask: Task
+    nextInstance: Task | null
+  }> => {
+    loading.value = true
+    error.value = null
+    
+    try {
+      const result = await apolloClient.client.mutate({
+        mutation: COMPLETE_TASK_WITH_RECURRENCE_MUTATION,
+        variables: { taskId }
+      })
+      
+      return result.data.completeTaskWithRecurrence
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : 'Failed to complete recurring task'
+      console.error('Failed to complete recurring task:', err)
+      throw err
+    } finally {
+      loading.value = false
+    }
+  }
+
+  // Helper to format recurrence descriptions for UI
+  const formatRecurrenceDescription = (recurrenceType: string, recurrenceDay?: number): string => {
+    switch (recurrenceType) {
+      case 'DAILY':
+        return 'Repeats daily'
+      case 'WEEKDAYS':
+        return 'Repeats on weekdays (Mon-Fri)'
+      case 'WEEKLY':
+        return 'Repeats weekly'
+      case 'MONTHLY':
+        if (recurrenceDay) {
+          const suffix = getOrdinalSuffix(recurrenceDay)
+          return `Repeats on the ${recurrenceDay}${suffix} of each month`
+        }
+        return 'Repeats monthly'
+      case 'NONE':
+      default:
+        return 'Does not repeat'
+    }
+  }
+
+  // Helper to get ordinal suffix (1st, 2nd, 3rd, etc.)
+  const getOrdinalSuffix = (day: number): string => {
+    if (day >= 11 && day <= 13) return 'th'
+    switch (day % 10) {
+      case 1: return 'st'
+      case 2: return 'nd'
+      case 3: return 'rd'
+      default: return 'th'
+    }
+  }
+
+  return {
+    // State
+    loading,
+    error,
+    
+    // Actions
+    completeRecurringTask,
+    
+    // Helpers
+    formatRecurrenceDescription
+  }
+}
+```
+
+### Activity System Composable
+
+```typescript
+// composables/useActivities.ts
+import { ref, computed } from 'vue'
+import { useApolloClient } from '@vue/apollo-composable'
+import type { Activity } from '@/generated/graphql'
+
+export function useActivities() {
+  const apolloClient = useApolloClient()
+  const activities = ref<Activity[]>([])
+  const loading = ref(false)
+  const error = ref<string | null>(null)
+
+  const ENTITY_TYPE = {
+    TASK: 'TASK',
+    PROJECT: 'PROJECT',
+    USER: 'USER',
+    SETTINGS: 'SETTINGS'
+  } as const
+
+  const GET_ACTIVITIES_QUERY = gql`
+    query GetActivities($entityType: EntityType!, $entityId: UUID!, $limit: Int, $offset: Int) {
+      activities(entityType: $entityType, entityId: $entityId, limit: $limit, offset: $offset) {
+        id
+        actionType
+        description
+        createdAt
+        actor {
+          id
+          email
+          firstName
+          lastName
+        }
+        metadataJson
+        changesJson
+      }
+    }
+  `
+
+  const ADD_COMMENT_MUTATION = gql`
+    mutation AddComment($input: AddCommentInput!) {
+      addComment(input: $input) {
+        id
+        description
+        createdAt
+        actor {
+          id
+          email
+          firstName
+          lastName
+        }
+      }
+    }
+  `
+
+  const loadActivities = async (
+    entityType: keyof typeof ENTITY_TYPE,
+    entityId: string,
+    limit = 50,
+    offset = 0
+  ) => {
+    loading.value = true
+    error.value = null
+    
+    try {
+      const result = await apolloClient.client.query({
+        query: GET_ACTIVITIES_QUERY,
+        variables: {
+          entityType: ENTITY_TYPE[entityType],
+          entityId,
+          limit,
+          offset
+        },
+        fetchPolicy: 'cache-first'
+      })
+      
+      activities.value = result.data.activities
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : 'Failed to load activities'
+      console.error('Failed to load activities:', err)
+    } finally {
+      loading.value = false
+    }
+  }
+
+  const addComment = async (
+    entityType: keyof typeof ENTITY_TYPE,
+    entityId: string,
+    content: string,
+    mentions?: string[]
+  ) => {
+    loading.value = true
+    error.value = null
+    
+    try {
+      const result = await apolloClient.client.mutate({
+        mutation: ADD_COMMENT_MUTATION,
+        variables: {
+          input: {
+            entityType: ENTITY_TYPE[entityType],
+            entityId,
+            content,
+            mentions
+          }
+        }
+      })
+      
+      const newActivity = result.data.addComment
+      activities.value.unshift(newActivity)
+      return newActivity
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : 'Failed to add comment'
+      console.error('Failed to add comment:', err)
+      throw err
+    } finally {
+      loading.value = false
+    }
+  }
+
+  // Computed properties
+  const commentActivities = computed(() =>
+    activities.value.filter(a => a.actionType === 'commented')
+  )
+
+  const systemActivities = computed(() =>
+    activities.value.filter(a => a.actionType !== 'commented')
+  )
+
+  const activityCount = computed(() => activities.value.length)
+
+  // Helper to format activity descriptions
+  const formatActivityDescription = (activity: Activity): string => {
+    if (activity.description) return activity.description
+    
+    // Fallback formatting based on action type
+    switch (activity.actionType) {
+      case 'created':
+        return 'Item created'
+      case 'updated':
+        return 'Item updated'
+      case 'completed':
+        return 'Item completed'
+      case 'assignment_changed':
+        return 'Assignment changed'
+      case 'status_changed':
+        return 'Status changed'
+      default:
+        return activity.actionType.replace('_', ' ')
+    }
+  }
+
+  // Helper to parse and format field changes
+  const formatFieldChanges = (changesJson?: string): Array<{
+    field: string
+    oldValue: any
+    newValue: any
+  }> => {
+    if (!changesJson) return []
+    
+    try {
+      const changes = JSON.parse(changesJson)
+      return Object.entries(changes).map(([field, change]: [string, any]) => ({
+        field,
+        oldValue: change.old_value,
+        newValue: change.new_value
+      }))
+    } catch {
+      return []
+    }
+  }
+
+  return {
+    // Constants
+    ENTITY_TYPE,
+    
+    // State
+    activities,
+    loading,
+    error,
+    
+    // Computed
+    commentActivities,
+    systemActivities,
+    activityCount,
+    
+    // Actions
+    loadActivities,
+    addComment,
+    
+    // Helpers
+    formatActivityDescription,
+    formatFieldChanges
   }
 }
 ```
@@ -1526,29 +2020,97 @@ export function useTaskAnalytics() {
 
 ## 🎯 Next Steps for Frontend Implementation
 
-1. **Start with Core Features**:
+### Phase 1: Core Features
+1. **Basic Task Management**:
    - Implement project listing and creation
-   - Build basic task management (CRUD operations)
+   - Build CRUD operations for tasks
    - Add permission-based UI controls
 
-2. **Enhance User Experience**:
+2. **Type-Safe Implementation**:
+   - Generate TypeScript types from GraphQL schema
+   - Utilize enum introspection for dropdowns and validation
+   - Implement proper error handling with typed responses
+
+### Phase 2: Recurring Tasks
+1. **Recurrence UI Components**:
+   - Create recurrence pattern selector component
+   - Add recurrence description display in task cards
+   - Implement recurring task completion with next instance preview
+
+2. **Recurring Task Management**:
+   - Show parent-child relationship in task lists
+   - Add filtering for recurring vs one-time tasks
+   - Create recurring task template editing
+
+### Phase 3: Activity & Comments System
+1. **Activity Timeline**:
+   - Build activity feed component with filtering
+   - Implement real-time activity updates
+   - Add user mentions and notifications
+
+2. **Comments & Collaboration**:
+   - Create comment input with rich text support
+   - Add @mentions with user autocomplete
+   - Implement activity-based notifications
+
+### Phase 4: Advanced Features
+1. **Enhanced User Experience**:
    - Add drag-and-drop for task status changes
-   - Implement task filtering and search
-   - Create dashboard with task statistics
+   - Implement advanced filtering (status, assignee, recurrence, etc.)
+   - Create comprehensive dashboard with statistics
 
-3. **Advanced Features**:
-   - Add due date notifications
-   - Implement task assignment workflows
-   - Create reporting and analytics views
+2. **Analytics & Reporting**:
+   - Task completion trends over time
+   - Recurring task performance metrics
+   - Activity-based productivity insights
 
-4. **Performance Optimization**:
-   - Implement proper caching strategies
-   - Add optimistic UI updates
-   - Consider virtual scrolling for large task lists
+### Phase 5: Performance & Scale
+1. **Optimization**:
+   - Implement proper caching strategies for activities
+   - Add optimistic UI updates for comments
+   - Consider virtual scrolling for activity feeds
 
-5. **Mobile Responsiveness**:
-   - Optimize task boards for mobile devices
-   - Add touch-friendly interactions
-   - Consider progressive web app features
+2. **Real-time Features**:
+   - WebSocket integration for live activity updates
+   - Real-time collaboration indicators
+   - Live task status synchronization
 
-The task system is designed to scale with your application needs while maintaining the security and performance patterns established in the main [FRONTEND_INTEGRATION.md](./FRONTEND_INTEGRATION.md) guide. All permission checks work seamlessly with the existing RBAC system, ensuring consistent security across your entire application.
+## 🔍 GraphQL Introspection for Type Generation
+
+Use the enhanced enum system for automatic TypeScript generation:
+
+```bash
+# Generate types with proper enum support
+npx graphql-codegen --config codegen.yml
+```
+
+**codegen.yml example:**
+```yaml
+generates:
+  src/generated/graphql.ts:
+    plugins:
+      - typescript
+      - typescript-operations
+    config:
+      enumsAsTypes: true          # Generate enums as union types
+      maybeValue: T | null        # Handle nullable types properly
+      skipTypename: false         # Include __typename for better caching
+```
+
+This will generate proper TypeScript types like:
+
+```typescript
+export type TaskStatus = 'TODO' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED'
+export type RecurrenceType = 'NONE' | 'DAILY' | 'WEEKDAYS' | 'WEEKLY' | 'MONTHLY'
+```
+
+## 🚀 Key Benefits of the Enhanced System
+
+1. **Type Safety**: Full type safety from database to frontend with GraphQL introspection
+2. **Simplicity**: Simple enum-based recurrence patterns instead of complex cron expressions  
+3. **Flexibility**: Generic activity system supports future entity types seamlessly
+4. **Performance**: Efficient database queries with proper indexing and pagination
+5. **Scalability**: Activity logging scales to millions of records with minimal impact
+6. **User Experience**: Rich activity feeds and commenting system enhance collaboration
+
+The enhanced task system maintains all existing security and performance patterns while adding powerful new capabilities. The type-safe enum system ensures consistency across your entire application stack, from database constraints to frontend validation.

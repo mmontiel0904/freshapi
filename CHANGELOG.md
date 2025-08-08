@@ -14,6 +14,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GraphQL API with mutations (register, login, verifyEmail) and queries (me, health)
 - Email service integration with verification email flow (console logging for development)
 - Optional authentication middleware supporting both public and authenticated endpoints
+- **Task recurrence system with type-safe enums and flexible patterns (daily, weekdays, weekly, monthly)**
+- **Activity logging system for all entities (tasks, projects, users, settings) with rich comment support**
+- **Comprehensive activity feed and commenting system with mentions and attachments**
+- **Enhanced GraphQL types for tasks, activities, and comments with introspection-enabled enums**
+- **Complete CRUD for recurring tasks and activity logs via GraphQL mutations and queries**
+- **Frontend integration guide for recurring tasks and activity system (see TASK_SYSTEM_INTEGRATION.md)**
+- **Automatic activity logging for task creation, updates, status changes, assignment, completion, and deletion**
+- **Efficient database migrations for enum types, activity tables, and recurrence fields**
 - GraphQL Playground for API testing and development
 - Health check endpoint for monitoring
 - Comprehensive .gitignore for Rust projects
@@ -65,6 +73,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **22 new RBAC endpoints: 8 queries + 14 mutations for complete role/permission management**
 - **Optimized GraphQL types with SeaORM ComplexObject implementations**
 - **Advanced input validation for role hierarchies and permission assignments**
+- **Type-safe enums for task status, priority, and recurrence type (GraphQL introspection enabled)**
+- **New GraphQL types: Activity, ActivityComment, AddCommentInput, and enhanced Task type**
+- **Recurring task fields: recurrenceType, recurrenceDay, isRecurring, parentTaskId, nextDueDate**
+- **Activity system queries and mutations: getActivities, addComment, completeTaskWithRecurrence**
 
 ### Security
 - JWT-based authentication with configurable expiration
@@ -82,6 +94,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Permission inheritance system with user-specific override capabilities**
 - **Comprehensive RBAC validation preventing privilege escalation**
 - **Admin-only access controls for all role and permission management operations**
+- **Activity logging for all task operations with permission checks and audit trail**
 
 ### Documentation
 - Complete README.md with setup instructions and API documentation
@@ -98,6 +111,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Complete GraphQL testing guide with all 22 RBAC operations and examples**
 - **Production-ready Vue.js RBAC management interface documentation**
 - **Frontend integration examples with TypeScript and GraphQL codegen**
+- **TASK_SYSTEM_INTEGRATION.md updated with recurring tasks, activity logging, and type-safe enums**
+- **Database migration documentation for enum types and activity system**
+- **GraphQL schema and input/output type documentation for new features**
 
 ---
 

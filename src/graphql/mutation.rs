@@ -4,7 +4,8 @@ use chrono::Utc;
 
 use crate::auth::require_user_management;
 use crate::graphql::types::{AcceptInvitationInput, AdminResetUserPasswordInput, AuthPayload, ChangePasswordInput, Invitation, InviteUserInput, InviteUserWithRoleInput, LoginInput, MessageResponse, RefreshTokenInput, RegisterInput, RequestPasswordResetInput, ResetPasswordInput, User, AssignRoleInput, Project, Task, CreateProjectInput, UpdateProjectInput, AddProjectMemberInput, UpdateMemberRoleInput, RemoveProjectMemberInput, CreateTaskInput, UpdateTaskInput, AssignTaskInput, Role, Permission, Resource, CreateRoleInput, UpdateRoleInput, CreatePermissionInput, UpdatePermissionInput, CreateResourceInput, UpdateResourceInput, AssignPermissionToRoleInput, RemovePermissionFromRoleInput, GrantUserPermissionInput, RevokeUserPermissionInput};
-use crate::services::{EmailService, InvitationService, UserService, ProjectService, TaskService, ProjectRole, TaskStatus, TaskPriority};
+use crate::services::{EmailService, InvitationService, UserService, ProjectService, TaskService, ProjectRole};
+// Task enums imported when needed
 
 pub struct MutationRoot;
 
@@ -405,8 +406,6 @@ impl MutationRoot {
         let task_service = ctx.data::<TaskService>()?;
         let authenticated_user = ctx.data::<crate::auth::AuthenticatedUser>()?;
         
-        let priority = input.priority.and_then(|p| TaskPriority::from_str(&p));
-        
         let task = task_service
             .create_task(
                 input.project_id,
@@ -414,7 +413,9 @@ impl MutationRoot {
                 &input.name,
                 input.description,
                 input.assignee_id,
-                priority,
+                input.priority,
+                input.recurrence_type,
+                input.recurrence_day,
                 input.due_date,
             )
             .await
@@ -430,17 +431,16 @@ impl MutationRoot {
         let task_service = ctx.data::<TaskService>()?;
         let authenticated_user = ctx.data::<crate::auth::AuthenticatedUser>()?;
         
-        let status = input.status.and_then(|s| TaskStatus::from_str(&s));
-        let priority = input.priority.and_then(|p| TaskPriority::from_str(&p));
-        
         let task = task_service
             .update_task(
                 input.task_id,
                 authenticated_user.id,
                 input.name,
                 input.description,
-                status,
-                priority,
+                input.status,
+                input.priority,
+                input.recurrence_type,
+                input.recurrence_day,
                 input.due_date,
             )
             .await

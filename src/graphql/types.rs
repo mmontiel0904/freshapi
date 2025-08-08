@@ -1,7 +1,188 @@
 use async_graphql::*;
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
-use sea_orm::{EntityTrait, ColumnTrait, QueryFilter, PaginatorTrait};
+use sea_orm::{EntityTrait, ColumnTrait, QueryFilter, QuerySelect, PaginatorTrait};
+
+// Type-safe enums with GraphQL introspection
+#[derive(Enum, Copy, Clone, Eq, PartialEq, Debug)]
+#[graphql(name = "RecurrenceType")]
+pub enum RecurrenceType {
+    #[graphql(name = "NONE")]
+    None,
+    #[graphql(name = "DAILY")]
+    Daily,
+    #[graphql(name = "WEEKDAYS")]
+    Weekdays,
+    #[graphql(name = "WEEKLY")]
+    Weekly,
+    #[graphql(name = "MONTHLY")]
+    Monthly,
+}
+
+impl RecurrenceType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            RecurrenceType::None => "none",
+            RecurrenceType::Daily => "daily",
+            RecurrenceType::Weekdays => "weekdays",
+            RecurrenceType::Weekly => "weekly",
+            RecurrenceType::Monthly => "monthly",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "none" => Some(RecurrenceType::None),
+            "daily" => Some(RecurrenceType::Daily),
+            "weekdays" => Some(RecurrenceType::Weekdays),
+            "weekly" => Some(RecurrenceType::Weekly),
+            "monthly" => Some(RecurrenceType::Monthly),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Enum, Copy, Clone, Eq, PartialEq, Debug)]
+#[graphql(name = "TaskStatus")]
+pub enum TaskStatus {
+    #[graphql(name = "TODO")]
+    Todo,
+    #[graphql(name = "IN_PROGRESS")]
+    InProgress,
+    #[graphql(name = "COMPLETED")]
+    Completed,
+    #[graphql(name = "CANCELLED")]
+    Cancelled,
+}
+
+impl TaskStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            TaskStatus::Todo => "todo",
+            TaskStatus::InProgress => "in_progress",
+            TaskStatus::Completed => "completed",
+            TaskStatus::Cancelled => "cancelled",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "todo" => Some(TaskStatus::Todo),
+            "in_progress" => Some(TaskStatus::InProgress),
+            "completed" => Some(TaskStatus::Completed),
+            "cancelled" => Some(TaskStatus::Cancelled),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Enum, Copy, Clone, Eq, PartialEq, Debug)]
+#[graphql(name = "TaskPriority")]
+pub enum TaskPriority {
+    #[graphql(name = "LOW")]
+    Low,
+    #[graphql(name = "MEDIUM")]
+    Medium,
+    #[graphql(name = "HIGH")]
+    High,
+    #[graphql(name = "URGENT")]
+    Urgent,
+}
+
+impl TaskPriority {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            TaskPriority::Low => "low",
+            TaskPriority::Medium => "medium",
+            TaskPriority::High => "high",
+            TaskPriority::Urgent => "urgent",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "low" => Some(TaskPriority::Low),
+            "medium" => Some(TaskPriority::Medium),
+            "high" => Some(TaskPriority::High),
+            "urgent" => Some(TaskPriority::Urgent),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Enum, Copy, Clone, Eq, PartialEq, Debug)]
+#[graphql(name = "EntityType")]
+pub enum GraphQLEntityType {
+    #[graphql(name = "TASK")]
+    Task,
+    #[graphql(name = "PROJECT")]
+    Project,
+    #[graphql(name = "USER")]
+    User,
+    #[graphql(name = "SETTINGS")]
+    Settings,
+}
+
+// Activity system types
+#[derive(SimpleObject)]
+#[graphql(complex)]
+pub struct Activity {
+    pub id: Uuid,
+    pub entity_type: String,
+    pub entity_id: Uuid,
+    pub actor_id: Uuid,
+    pub action_type: String,
+    pub description: Option<String>,
+    #[graphql(skip)]
+    pub metadata: Option<serde_json::Value>,
+    #[graphql(skip)]
+    pub changes: Option<serde_json::Value>,
+    pub created_at: DateTime<Utc>,
+}
+
+impl From<crate::entities::activity::Model> for Activity {
+    fn from(activity: crate::entities::activity::Model) -> Self {
+        Self {
+            id: activity.id,
+            entity_type: activity.entity_type,
+            entity_id: activity.entity_id,
+            actor_id: activity.actor_id,
+            action_type: activity.action_type,
+            description: activity.description,
+            metadata: activity.metadata,
+            changes: activity.changes,
+            created_at: activity.created_at.into(),
+        }
+    }
+}
+
+#[ComplexObject]
+impl Activity {
+    async fn actor(&self, ctx: &Context<'_>) -> Result<Option<User>> {
+        let user_service = ctx.data::<crate::services::UserService>()?;
+        let user = crate::entities::user::Entity::find_by_id(self.actor_id)
+            .one(user_service.get_db())
+            .await
+            .map_err(|e| Error::new(format!("Failed to fetch actor: {}", e)))?;
+        Ok(user.map(|u| u.into()))
+    }
+
+    async fn metadata_json(&self, _ctx: &Context<'_>) -> Result<Option<String>> {
+        Ok(self.metadata.as_ref().map(|m| serde_json::to_string(m).unwrap_or_default()))
+    }
+
+    async fn changes_json(&self, _ctx: &Context<'_>) -> Result<Option<String>> {
+        Ok(self.changes.as_ref().map(|c| serde_json::to_string(c).unwrap_or_default()))
+    }
+}
+
+#[derive(InputObject)]
+pub struct AddCommentInput {
+    pub entity_type: GraphQLEntityType,
+    pub entity_id: Uuid,
+    pub content: String,
+    pub mentions: Option<Vec<Uuid>>,
+}
 
 #[derive(SimpleObject)]
 #[graphql(complex)]
@@ -480,7 +661,7 @@ impl Project {
         let task_service = ctx.data::<crate::services::TaskService>()?;
         let authenticated_user = ctx.data::<crate::auth::AuthenticatedUser>()?;
         
-        let status_filter = status.and_then(|s| crate::services::TaskStatus::from_str(&s));
+        let status_filter = status.and_then(|s| TaskStatus::from_str(&s));
         
         let tasks = task_service
             .get_project_tasks(
@@ -551,9 +732,14 @@ pub struct Task {
     pub project_id: Uuid,
     pub assignee_id: Option<Uuid>,
     pub creator_id: Uuid,
-    pub status: String,
-    pub priority: String,
+    pub status: TaskStatus,
+    pub priority: TaskPriority,
+    pub recurrence_type: RecurrenceType,
+    pub recurrence_day: Option<i32>,
+    pub is_recurring: bool,
+    pub parent_task_id: Option<Uuid>,
     pub due_date: Option<DateTime<Utc>>,
+    pub next_due_date: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -567,9 +753,14 @@ impl From<crate::entities::task::Model> for Task {
             project_id: task.project_id,
             assignee_id: task.assignee_id,
             creator_id: task.creator_id,
-            status: task.status,
-            priority: task.priority,
+            status: TaskStatus::from_str(&task.status).unwrap_or(TaskStatus::Todo),
+            priority: TaskPriority::from_str(&task.priority).unwrap_or(TaskPriority::Medium),
+            recurrence_type: RecurrenceType::from_str(&task.recurrence_type).unwrap_or(RecurrenceType::None),
+            recurrence_day: task.recurrence_day,
+            is_recurring: task.is_recurring,
+            parent_task_id: task.parent_task_id,
             due_date: task.due_date.map(|dt| dt.into()),
+            next_due_date: task.next_due_date.map(|dt| dt.into()),
             created_at: task.created_at.into(),
             updated_at: task.updated_at.into(),
         }
@@ -615,6 +806,68 @@ impl Task {
             
         Ok(user.map(|u| u.into()))
     }
+
+    async fn activities(&self, ctx: &Context<'_>, limit: Option<i32>, offset: Option<i32>) -> Result<Vec<Activity>> {
+        let activity_service = ctx.data::<crate::services::ActivityService>()?;
+        
+        let activities = activity_service
+            .get_entity_activities(
+                crate::services::EntityType::Task,
+                self.id,
+                limit.map(|l| l as u64),
+                offset.map(|o| o as u64),
+            )
+            .await
+            .map_err(|e| Error::new(format!("Failed to fetch activities: {}", e)))?;
+            
+        Ok(activities.into_iter().map(|a| a.into()).collect())
+    }
+
+    async fn activity_count(&self, ctx: &Context<'_>) -> Result<u32> {
+        let activity_service = ctx.data::<crate::services::ActivityService>()?;
+        
+        let count = activity_service
+            .get_activity_count(crate::services::EntityType::Task, self.id)
+            .await
+            .map_err(|e| Error::new(format!("Failed to get activity count: {}", e)))?;
+            
+        Ok(count as u32)
+    }
+
+    async fn parent_task(&self, ctx: &Context<'_>) -> Result<Option<Task>> {
+        if let Some(parent_id) = self.parent_task_id {
+            let task_service = ctx.data::<crate::services::TaskService>()?;
+            let authenticated_user = ctx.data::<crate::auth::AuthenticatedUser>()?;
+            
+            let parent = task_service
+                .get_task(parent_id, authenticated_user.id)
+                .await
+                .map_err(|e| Error::new(format!("Failed to fetch parent task: {}", e)))?;
+                
+            Ok(parent.map(|t| t.into()))
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn recurring_instances(&self, ctx: &Context<'_>, limit: Option<i32>) -> Result<Vec<Task>> {
+        if !self.is_recurring {
+            return Ok(vec![]);
+        }
+
+        let task_service = ctx.data::<crate::services::TaskService>()?;
+        let _authenticated_user = ctx.data::<crate::auth::AuthenticatedUser>()?;
+        
+        // Get tasks that have this task as parent
+        let instances = crate::entities::task::Entity::find()
+            .filter(crate::entities::task::Column::ParentTaskId.eq(self.id))
+            .limit(limit.map(|l| l as u64).unwrap_or(50))
+            .all(task_service.get_db())
+            .await
+            .map_err(|e| Error::new(format!("Failed to fetch recurring instances: {}", e)))?;
+            
+        Ok(instances.into_iter().map(|t| t.into()).collect())
+    }
 }
 
 #[derive(InputObject)]
@@ -623,7 +876,9 @@ pub struct CreateTaskInput {
     pub name: String,
     pub description: Option<String>,
     pub assignee_id: Option<Uuid>,
-    pub priority: Option<String>,
+    pub priority: Option<TaskPriority>,
+    pub recurrence_type: Option<RecurrenceType>,
+    pub recurrence_day: Option<i32>,
     pub due_date: Option<DateTime<Utc>>,
 }
 
@@ -632,8 +887,10 @@ pub struct UpdateTaskInput {
     pub task_id: Uuid,
     pub name: Option<String>,
     pub description: Option<Option<String>>,
-    pub status: Option<String>,
-    pub priority: Option<String>,
+    pub status: Option<TaskStatus>,
+    pub priority: Option<TaskPriority>,
+    pub recurrence_type: Option<RecurrenceType>,
+    pub recurrence_day: Option<Option<i32>>,
     pub due_date: Option<Option<DateTime<Utc>>>,
 }
 
