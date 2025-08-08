@@ -194,7 +194,7 @@ impl QueryRoot {
     // Project queries
     async fn my_projects(&self, ctx: &Context<'_>, limit: Option<i32>, offset: Option<i32>) -> Result<Vec<Project>> {
         use crate::auth::require_permission;
-        require_permission(ctx, "task_system", "read").await?;
+        require_permission(ctx, "task_system", "project_read").await?;
         
         let project_service = ctx.data::<ProjectService>()?;
         let authenticated_user = ctx.data::<AuthenticatedUser>()?;
@@ -213,7 +213,7 @@ impl QueryRoot {
 
     async fn project(&self, ctx: &Context<'_>, project_id: uuid::Uuid) -> Result<Option<Project>> {
         use crate::auth::require_permission;
-        require_permission(ctx, "task_system", "read").await?;
+        require_permission(ctx, "task_system", "project_read").await?;
         
         let project_service = ctx.data::<ProjectService>()?;
         let authenticated_user = ctx.data::<AuthenticatedUser>()?;
@@ -229,7 +229,7 @@ impl QueryRoot {
     // Task queries
     async fn task(&self, ctx: &Context<'_>, task_id: uuid::Uuid) -> Result<Option<Task>> {
         use crate::auth::require_permission;
-        require_permission(ctx, "task_system", "read").await?;
+        require_permission(ctx, "task_system", "task_read").await?;
         
         let task_service = ctx.data::<TaskService>()?;
         let authenticated_user = ctx.data::<AuthenticatedUser>()?;
@@ -244,7 +244,7 @@ impl QueryRoot {
 
     async fn my_assigned_tasks(&self, ctx: &Context<'_>, status: Option<String>, limit: Option<i32>, offset: Option<i32>) -> Result<Vec<Task>> {
         use crate::auth::require_permission;
-        require_permission(ctx, "task_system", "read").await?;
+        require_permission(ctx, "task_system", "task_read").await?;
         
         let task_service = ctx.data::<TaskService>()?;
         let authenticated_user = ctx.data::<AuthenticatedUser>()?;
@@ -266,7 +266,7 @@ impl QueryRoot {
 
     async fn project_tasks(&self, ctx: &Context<'_>, project_id: uuid::Uuid, status: Option<String>, assignee_id: Option<uuid::Uuid>, limit: Option<i32>, offset: Option<i32>) -> Result<Vec<Task>> {
         use crate::auth::require_permission;
-        require_permission(ctx, "task_system", "read").await?;
+        require_permission(ctx, "task_system", "task_read").await?;
         
         let task_service = ctx.data::<TaskService>()?;
         let authenticated_user = ctx.data::<AuthenticatedUser>()?;
@@ -290,7 +290,7 @@ impl QueryRoot {
 
     async fn project_task_stats(&self, ctx: &Context<'_>, project_id: uuid::Uuid) -> Result<TaskStats> {
         use crate::auth::require_permission;
-        require_permission(ctx, "task_system", "read").await?;
+        require_permission(ctx, "task_system", "task_read").await?;
         
         let task_service = ctx.data::<TaskService>()?;
         let authenticated_user = ctx.data::<AuthenticatedUser>()?;

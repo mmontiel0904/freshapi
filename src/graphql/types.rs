@@ -459,10 +459,10 @@ impl Project {
 
     async fn members(&self, ctx: &Context<'_>) -> Result<Vec<ProjectMember>> {
         let project_service = ctx.data::<crate::services::ProjectService>()?;
-        let current_user = ctx.data::<crate::entities::user::Model>()?;
+        let authenticated_user = ctx.data::<crate::auth::AuthenticatedUser>()?;
         
         let members = project_service
-            .get_project_members(self.id, current_user.id)
+            .get_project_members(self.id, authenticated_user.id)
             .await
             .map_err(|e| Error::new(format!("Failed to fetch members: {}", e)))?;
             
@@ -478,14 +478,14 @@ impl Project {
 
     async fn tasks(&self, ctx: &Context<'_>, status: Option<String>, assignee_id: Option<Uuid>, limit: Option<i32>, offset: Option<i32>) -> Result<Vec<Task>> {
         let task_service = ctx.data::<crate::services::TaskService>()?;
-        let current_user = ctx.data::<crate::entities::user::Model>()?;
+        let authenticated_user = ctx.data::<crate::auth::AuthenticatedUser>()?;
         
         let status_filter = status.and_then(|s| crate::services::TaskStatus::from_str(&s));
         
         let tasks = task_service
             .get_project_tasks(
                 self.id,
-                current_user.id,
+                authenticated_user.id,
                 status_filter,
                 assignee_id,
                 limit.map(|l| l.max(0) as u64),
@@ -580,10 +580,10 @@ impl From<crate::entities::task::Model> for Task {
 impl Task {
     async fn project(&self, ctx: &Context<'_>) -> Result<Option<Project>> {
         let project_service = ctx.data::<crate::services::ProjectService>()?;
-        let current_user = ctx.data::<crate::entities::user::Model>()?;
+        let authenticated_user = ctx.data::<crate::auth::AuthenticatedUser>()?;
         
         let project = project_service
-            .get_project(self.project_id, current_user.id)
+            .get_project(self.project_id, authenticated_user.id)
             .await
             .map_err(|e| Error::new(format!("Failed to fetch project: {}", e)))?;
             

@@ -295,7 +295,7 @@ impl MutationRoot {
     // Project mutations
     async fn create_project(&self, ctx: &Context<'_>, input: CreateProjectInput) -> Result<Project> {
         use crate::auth::require_permission;
-        require_permission(ctx, "task_system", "create").await?;
+        require_permission(ctx, "task_system", "project_create").await?;
         
         let project_service = ctx.data::<ProjectService>()?;
         let authenticated_user = ctx.data::<crate::auth::AuthenticatedUser>()?;
@@ -310,7 +310,7 @@ impl MutationRoot {
 
     async fn update_project(&self, ctx: &Context<'_>, input: UpdateProjectInput) -> Result<Project> {
         use crate::auth::require_permission;
-        require_permission(ctx, "task_system", "write").await?;
+        require_permission(ctx, "task_system", "task_write").await?;
         
         let project_service = ctx.data::<ProjectService>()?;
         let authenticated_user = ctx.data::<crate::auth::AuthenticatedUser>()?;
@@ -325,7 +325,7 @@ impl MutationRoot {
 
     async fn delete_project(&self, ctx: &Context<'_>, project_id: uuid::Uuid) -> Result<MessageResponse> {
         use crate::auth::require_permission;
-        require_permission(ctx, "task_system", "admin").await?;
+        require_permission(ctx, "task_system", "project_admin").await?;
         
         let project_service = ctx.data::<ProjectService>()?;
         let authenticated_user = ctx.data::<crate::auth::AuthenticatedUser>()?;
@@ -342,7 +342,7 @@ impl MutationRoot {
 
     async fn add_project_member(&self, ctx: &Context<'_>, input: AddProjectMemberInput) -> Result<MessageResponse> {
         use crate::auth::require_permission;
-        require_permission(ctx, "task_system", "user_management").await?;
+        require_permission(ctx, "task_system", "project_invite").await?;
         
         let project_service = ctx.data::<ProjectService>()?;
         let authenticated_user = ctx.data::<crate::auth::AuthenticatedUser>()?;
@@ -362,7 +362,7 @@ impl MutationRoot {
 
     async fn update_member_role(&self, ctx: &Context<'_>, input: UpdateMemberRoleInput) -> Result<MessageResponse> {
         use crate::auth::require_permission;
-        require_permission(ctx, "task_system", "user_management").await?;
+        require_permission(ctx, "task_system", "project_admin").await?;
         
         let project_service = ctx.data::<ProjectService>()?;
         let authenticated_user = ctx.data::<crate::auth::AuthenticatedUser>()?;
@@ -382,7 +382,7 @@ impl MutationRoot {
 
     async fn remove_project_member(&self, ctx: &Context<'_>, input: RemoveProjectMemberInput) -> Result<MessageResponse> {
         use crate::auth::require_permission;
-        require_permission(ctx, "task_system", "user_management").await?;
+        require_permission(ctx, "task_system", "project_admin").await?;
         
         let project_service = ctx.data::<ProjectService>()?;
         let authenticated_user = ctx.data::<crate::auth::AuthenticatedUser>()?;
@@ -400,7 +400,7 @@ impl MutationRoot {
     // Task mutations
     async fn create_task(&self, ctx: &Context<'_>, input: CreateTaskInput) -> Result<Task> {
         use crate::auth::require_permission;
-        require_permission(ctx, "task_system", "create").await?;
+        require_permission(ctx, "task_system", "task_create").await?;
         
         let task_service = ctx.data::<TaskService>()?;
         let authenticated_user = ctx.data::<crate::auth::AuthenticatedUser>()?;
@@ -425,7 +425,7 @@ impl MutationRoot {
 
     async fn update_task(&self, ctx: &Context<'_>, input: UpdateTaskInput) -> Result<Task> {
         use crate::auth::require_permission;
-        require_permission(ctx, "task_system", "write").await?;
+        require_permission(ctx, "task_system", "task_write").await?;
         
         let task_service = ctx.data::<TaskService>()?;
         let authenticated_user = ctx.data::<crate::auth::AuthenticatedUser>()?;
@@ -451,7 +451,7 @@ impl MutationRoot {
 
     async fn assign_task(&self, ctx: &Context<'_>, input: AssignTaskInput) -> Result<Task> {
         use crate::auth::require_permission;
-        require_permission(ctx, "task_system", "user_management").await?;
+        require_permission(ctx, "task_system", "task_assign").await?;
         
         let task_service = ctx.data::<TaskService>()?;
         let authenticated_user = ctx.data::<crate::auth::AuthenticatedUser>()?;
@@ -466,7 +466,7 @@ impl MutationRoot {
 
     async fn delete_task(&self, ctx: &Context<'_>, task_id: uuid::Uuid) -> Result<MessageResponse> {
         use crate::auth::require_permission;
-        require_permission(ctx, "task_system", "admin").await?;
+        require_permission(ctx, "task_system", "task_delete").await?;
         
         let task_service = ctx.data::<TaskService>()?;
         let authenticated_user = ctx.data::<crate::auth::AuthenticatedUser>()?;
