@@ -84,9 +84,9 @@ impl TaskService {
             project_id: Set(project_id),
             assignee_id: Set(assignee_id),
             creator_id: Set(creator_id),
-            status: Set(TaskStatus::Todo.as_str().to_string()),
-            priority: Set(priority.unwrap_or(TaskPriority::Medium).as_str().to_string()),
-            recurrence_type: Set(recurrence.as_str().to_string()),
+            status: Set(TaskStatus::Todo),
+            priority: Set(priority.unwrap_or(TaskPriority::Medium)),
+            recurrence_type: Set(recurrence),
             recurrence_day: Set(recurrence_day),
             is_recurring: Set(is_recurring),
             parent_task_id: Set(None),
@@ -157,7 +157,7 @@ impl TaskService {
             .order_by_desc(task::Column::UpdatedAt);
 
         if let Some(status) = status_filter {
-            query = query.filter(task::Column::Status.eq(status.as_str()));
+            query = query.filter(task::Column::Status.eq(status));
         }
 
         if let Some(assignee_id) = assignee_filter {
@@ -189,7 +189,7 @@ impl TaskService {
             .order_by_desc(task::Column::UpdatedAt);
 
         if let Some(status) = status_filter {
-            query = query.filter(task::Column::Status.eq(status.as_str()));
+            query = query.filter(task::Column::Status.eq(status));
         }
 
         if let Some(limit) = limit {
@@ -252,15 +252,15 @@ impl TaskService {
         }
 
         if let Some(status) = status {
-            task_active.status = Set(status.as_str().to_string());
+            task_active.status = Set(status);
         }
 
         if let Some(priority) = priority {
-            task_active.priority = Set(priority.as_str().to_string());
+            task_active.priority = Set(priority);
         }
 
         if let Some(recurrence_type) = recurrence_type {
-            task_active.recurrence_type = Set(recurrence_type.as_str().to_string());
+            task_active.recurrence_type = Set(recurrence_type);
             task_active.is_recurring = Set(recurrence_type != RecurrenceType::None);
         }
 
@@ -280,9 +280,9 @@ impl TaskService {
         let field_changes = serde_json::json!({
             "name": name,
             "description": description,
-            "status": status.map(|s| s.as_str()),
-            "priority": priority.map(|p| p.as_str()),
-            "recurrence_type": recurrence_type.map(|r| r.as_str()),
+            "status": status.as_ref(),
+            "priority": priority.as_ref(),
+            "recurrence_type": recurrence_type.as_ref(),
             "recurrence_day": recurrence_day,
             "due_date": due_date
         });
@@ -392,19 +392,19 @@ impl TaskService {
         let total = tasks.len() as u32;
         let todo = tasks
             .iter()
-            .filter(|t| t.status == TaskStatus::Todo.as_str())
+            .filter(|t| t.status == TaskStatus::Todo)
             .count() as u32;
         let in_progress = tasks
             .iter()
-            .filter(|t| t.status == TaskStatus::InProgress.as_str())
+            .filter(|t| t.status == TaskStatus::InProgress)
             .count() as u32;
         let completed = tasks
             .iter()
-            .filter(|t| t.status == TaskStatus::Completed.as_str())
+            .filter(|t| t.status == TaskStatus::Completed)
             .count() as u32;
         let cancelled = tasks
             .iter()
-            .filter(|t| t.status == TaskStatus::Cancelled.as_str())
+            .filter(|t| t.status == TaskStatus::Cancelled)
             .count() as u32;
 
         // Count overdue tasks
@@ -414,7 +414,7 @@ impl TaskService {
             .filter(|t| {
                 if let Some(due_date) = &t.due_date {
                     let due_utc: DateTime<Utc> = due_date.clone().into();
-                    due_utc < now && t.status != TaskStatus::Completed.as_str()
+                    due_utc < now && t.status != TaskStatus::Completed
                 } else {
                     false
                 }
@@ -499,7 +499,7 @@ impl TaskService {
 
         // Update task status to completed
         let mut task_active: task::ActiveModel = task.clone().into();
-        task_active.status = Set(TaskStatus::Completed.as_str().to_string());
+        task_active.status = Set(TaskStatus::Completed);
         task_active.updated_at = Set(Utc::now().into());
 
         let _completed_task = task_active.update(&self.db).await?;
@@ -510,7 +510,7 @@ impl TaskService {
                 let due_utc: DateTime<Utc> = current_due.clone().into();
                 Some(self.calculate_next_due_date(
                     due_utc,
-                    &RecurrenceType::from_str(&task.recurrence_type).unwrap_or(RecurrenceType::None),
+                    &task.recurrence_type,
                     task.recurrence_day,
                 )?)
             } else {
@@ -524,7 +524,7 @@ impl TaskService {
                 project_id: Set(task.project_id),
                 assignee_id: Set(task.assignee_id),
                 creator_id: Set(task.creator_id),
-                status: Set(TaskStatus::Todo.as_str().to_string()),
+                status: Set(TaskStatus::Todo),
                 priority: Set(task.priority.clone()),
                 recurrence_type: Set(task.recurrence_type.clone()),
                 recurrence_day: Set(task.recurrence_day),

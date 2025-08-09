@@ -243,14 +243,14 @@ impl QueryRoot {
         Ok(task.map(|t| t.into()))
     }
 
-    async fn my_assigned_tasks(&self, ctx: &Context<'_>, status: Option<String>, limit: Option<i32>, offset: Option<i32>) -> Result<Vec<Task>> {
+    async fn my_assigned_tasks(&self, ctx: &Context<'_>, status: Option<TaskStatus>, limit: Option<i32>, offset: Option<i32>) -> Result<Vec<Task>> {
         use crate::auth::require_permission;
         require_permission(ctx, "task_system", "task_read").await?;
         
         let task_service = ctx.data::<TaskService>()?;
         let authenticated_user = ctx.data::<AuthenticatedUser>()?;
         
-        let status_filter = status.and_then(|s| TaskStatus::from_str(&s));
+        let status_filter = status;
         
         let tasks = task_service
             .get_user_assigned_tasks(
@@ -265,14 +265,14 @@ impl QueryRoot {
         Ok(tasks.into_iter().map(|t| t.into()).collect())
     }
 
-    async fn project_tasks(&self, ctx: &Context<'_>, project_id: uuid::Uuid, status: Option<String>, assignee_id: Option<uuid::Uuid>, limit: Option<i32>, offset: Option<i32>) -> Result<Vec<Task>> {
+    async fn project_tasks(&self, ctx: &Context<'_>, project_id: uuid::Uuid, status: Option<TaskStatus>, assignee_id: Option<uuid::Uuid>, limit: Option<i32>, offset: Option<i32>) -> Result<Vec<Task>> {
         use crate::auth::require_permission;
         require_permission(ctx, "task_system", "task_read").await?;
         
         let task_service = ctx.data::<TaskService>()?;
         let authenticated_user = ctx.data::<AuthenticatedUser>()?;
         
-        let status_filter = status.and_then(|s| TaskStatus::from_str(&s));
+        let status_filter = status;
         
         let tasks = task_service
             .get_project_tasks(

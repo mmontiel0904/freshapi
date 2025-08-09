@@ -773,7 +773,36 @@ const ALL_USERS_QUERY = gql`
 - ✅ **Same reliability** - All error handling works unchanged
 - ✅ **Zero code changes** - Existing queries automatically optimized
 
-## 🔄 Schema Evolution
+## 🔄 Schema Evolution & Recent Updates
+
+### ✅ Fixed: Task System Enum Type Safety (Latest Update)
+
+**Issue Resolved**: The GraphQL schema parameters have been updated from `String` to proper enum types:
+
+**Before (Fixed):**
+```graphql
+type QueryRoot {
+  myAssignedTasks(status: String): [Task!]!  # ❌ Was String
+  projectTasks(status: String): [Task!]!     # ❌ Was String
+}
+```
+
+**After (Current):**
+```graphql  
+type QueryRoot {
+  myAssignedTasks(status: TaskStatus): [Task!]!  # ✅ Now TaskStatus enum
+  projectTasks(status: TaskStatus): [Task!]!     # ✅ Now TaskStatus enum
+}
+```
+
+**Benefits:**
+- ✅ **Full Type Safety**: From database to GraphQL to frontend
+- ✅ **Compile-time Validation**: Invalid enum values caught early  
+- ✅ **Better DX**: IDE autocomplete for all enum values
+- ✅ **Database Integrity**: PostgreSQL enforces valid values
+- ✅ **Performance**: No string parsing overhead
+
+### Schema Evolution Process
 
 When you add new GraphQL types/mutations:
 
@@ -782,6 +811,7 @@ When you add new GraphQL types/mutations:
 3. ✅ **Use new types immediately** in your frontend code
 4. ✅ **Permission checks automatically available** for new mutations
 5. ✅ **Performance optimizations automatic** - DataLoader handles batching
+6. ✅ **Enum types auto-generated** - Full type safety maintained
 
 The RBAC system is designed to scale seamlessly with your application growth! 🎉
 

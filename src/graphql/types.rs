@@ -1,21 +1,29 @@
 use async_graphql::*;
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
-use sea_orm::{EntityTrait, ColumnTrait, QueryFilter, QuerySelect, PaginatorTrait};
+use sea_orm::{EntityTrait, ColumnTrait, QueryFilter, QuerySelect, PaginatorTrait, DeriveActiveEnum};
+use serde::{Serialize, Deserialize};
+use strum::EnumIter;
 
 // Type-safe enums with GraphQL introspection
-#[derive(Enum, Copy, Clone, Eq, PartialEq, Debug)]
+#[derive(Enum, Copy, Clone, Eq, PartialEq, Debug, DeriveActiveEnum, Serialize, Deserialize, EnumIter)]
+#[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "recurrence_type")]
 #[graphql(name = "RecurrenceType")]
 pub enum RecurrenceType {
     #[graphql(name = "NONE")]
+    #[sea_orm(string_value = "none")]
     None,
     #[graphql(name = "DAILY")]
+    #[sea_orm(string_value = "daily")]
     Daily,
     #[graphql(name = "WEEKDAYS")]
+    #[sea_orm(string_value = "weekdays")]
     Weekdays,
     #[graphql(name = "WEEKLY")]
+    #[sea_orm(string_value = "weekly")]
     Weekly,
     #[graphql(name = "MONTHLY")]
+    #[sea_orm(string_value = "monthly")]
     Monthly,
 }
 
@@ -42,16 +50,21 @@ impl RecurrenceType {
     }
 }
 
-#[derive(Enum, Copy, Clone, Eq, PartialEq, Debug)]
+#[derive(Enum, Copy, Clone, Eq, PartialEq, Debug, DeriveActiveEnum, Serialize, Deserialize, EnumIter)]
+#[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "task_status")]
 #[graphql(name = "TaskStatus")]
 pub enum TaskStatus {
     #[graphql(name = "TODO")]
+    #[sea_orm(string_value = "todo")]
     Todo,
     #[graphql(name = "IN_PROGRESS")]
+    #[sea_orm(string_value = "in_progress")]
     InProgress,
     #[graphql(name = "COMPLETED")]
+    #[sea_orm(string_value = "completed")]
     Completed,
     #[graphql(name = "CANCELLED")]
+    #[sea_orm(string_value = "cancelled")]
     Cancelled,
 }
 
@@ -76,16 +89,21 @@ impl TaskStatus {
     }
 }
 
-#[derive(Enum, Copy, Clone, Eq, PartialEq, Debug)]
+#[derive(Enum, Copy, Clone, Eq, PartialEq, Debug, DeriveActiveEnum, Serialize, Deserialize, EnumIter)]
+#[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "task_priority")]
 #[graphql(name = "TaskPriority")]
 pub enum TaskPriority {
     #[graphql(name = "LOW")]
+    #[sea_orm(string_value = "low")]
     Low,
     #[graphql(name = "MEDIUM")]
+    #[sea_orm(string_value = "medium")]
     Medium,
     #[graphql(name = "HIGH")]
+    #[sea_orm(string_value = "high")]
     High,
     #[graphql(name = "URGENT")]
+    #[sea_orm(string_value = "urgent")]
     Urgent,
 }
 
@@ -657,11 +675,11 @@ impl Project {
         }).collect())
     }
 
-    async fn tasks(&self, ctx: &Context<'_>, status: Option<String>, assignee_id: Option<Uuid>, limit: Option<i32>, offset: Option<i32>) -> Result<Vec<Task>> {
+    async fn tasks(&self, ctx: &Context<'_>, status: Option<TaskStatus>, assignee_id: Option<Uuid>, limit: Option<i32>, offset: Option<i32>) -> Result<Vec<Task>> {
         let task_service = ctx.data::<crate::services::TaskService>()?;
         let authenticated_user = ctx.data::<crate::auth::AuthenticatedUser>()?;
         
-        let status_filter = status.and_then(|s| TaskStatus::from_str(&s));
+        let status_filter = status;
         
         let tasks = task_service
             .get_project_tasks(
@@ -753,9 +771,9 @@ impl From<crate::entities::task::Model> for Task {
             project_id: task.project_id,
             assignee_id: task.assignee_id,
             creator_id: task.creator_id,
-            status: TaskStatus::from_str(&task.status).unwrap_or(TaskStatus::Todo),
-            priority: TaskPriority::from_str(&task.priority).unwrap_or(TaskPriority::Medium),
-            recurrence_type: RecurrenceType::from_str(&task.recurrence_type).unwrap_or(RecurrenceType::None),
+            status: task.status,
+            priority: task.priority,
+            recurrence_type: task.recurrence_type,
             recurrence_day: task.recurrence_day,
             is_recurring: task.is_recurring,
             parent_task_id: task.parent_task_id,

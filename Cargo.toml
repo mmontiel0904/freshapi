@@ -28,3 +28,4 @@ tracing = "0.1.41"
 tracing-subscriber = "0.3.19"
 uuid = { version = "1.17.0", features = ["v4", "serde"] }
 async-graphql = { version = "7.0.17", features = ["uuid", "chrono", "dataloader"] }
+strum = { version = "0.26", features = ["derive"] }
