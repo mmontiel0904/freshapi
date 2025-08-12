@@ -3,8 +3,9 @@ use sea_orm::{EntityTrait, ActiveModelTrait, Set, ColumnTrait, QueryFilter, Pagi
 use chrono::Utc;
 
 use crate::auth::require_user_management;
-use crate::graphql::types::{AcceptInvitationInput, AdminResetUserPasswordInput, AuthPayload, ChangePasswordInput, Invitation, InviteUserInput, InviteUserWithRoleInput, LoginInput, MessageResponse, RefreshTokenInput, RegisterInput, RequestPasswordResetInput, ResetPasswordInput, User, AssignRoleInput, Project, Task, CreateProjectInput, UpdateProjectInput, AddProjectMemberInput, UpdateMemberRoleInput, RemoveProjectMemberInput, CreateTaskInput, UpdateTaskInput, AssignTaskInput, Role, Permission, Resource, CreateRoleInput, UpdateRoleInput, CreatePermissionInput, UpdatePermissionInput, CreateResourceInput, UpdateResourceInput, AssignPermissionToRoleInput, RemovePermissionFromRoleInput, GrantUserPermissionInput, RevokeUserPermissionInput};
-use crate::services::{EmailService, InvitationService, UserService, ProjectService, TaskService, ProjectRole};
+use crate::graphql::types::{AcceptInvitationInput, AdminResetUserPasswordInput, AuthPayload, ChangePasswordInput, Invitation, InviteUserInput, InviteUserWithRoleInput, LoginInput, MessageResponse, RefreshTokenInput, RegisterInput, RequestPasswordResetInput, ResetPasswordInput, User, AssignRoleInput, Project, Task, CreateProjectInput, UpdateProjectInput, AddProjectMemberInput, UpdateMemberRoleInput, RemoveProjectMemberInput, CreateTaskInput, UpdateTaskInput, AssignTaskInput, Role, Permission, Resource, CreateRoleInput, UpdateRoleInput, CreatePermissionInput, UpdatePermissionInput, CreateResourceInput, UpdateResourceInput, AssignPermissionToRoleInput, RemovePermissionFromRoleInput, GrantUserPermissionInput, RevokeUserPermissionInput, AddCommentInput, Activity, GraphQLEntityType};
+use crate::services::{EmailService, InvitationService, UserService, ProjectService, TaskService, ProjectRole, ActivityService};
+use crate::services::activity::EntityType;
 // Task enums imported when needed
 
 pub struct MutationRoot;
@@ -1069,5 +1070,70 @@ impl MutationRoot {
         Ok(MessageResponse {
             message: "Permission revoked from user successfully".to_string(),
         })
+    }
+
+    // Comment system mutations
+    async fn add_comment(&self, ctx: &Context<'_>, input: AddCommentInput) -> Result<Activity> {
+        let auth_user = ctx.data::<crate::auth::AuthenticatedUser>()?;
+        
+        // Convert GraphQLEntityType to EntityType
+        let entity_type = match input.entity_type {
+            GraphQLEntityType::Task => EntityType::Task,
+            GraphQLEntityType::Project => EntityType::Project,
+            GraphQLEntityType::User => EntityType::User,
+            GraphQLEntityType::Settings => EntityType::Settings,
+        };
+
+        // Verify user can access the entity they want to comment on
+        match entity_type {
+            EntityType::Task => {
+                let task_service = ctx.data::<TaskService>()?;
+                let can_access = task_service
+                    .can_user_access_task(input.entity_id, auth_user.id)
+                    .await
+                    .map_err(|e| Error::new(format!("Failed to check task access: {}", e)))?;
+                
+                if !can_access {
+                    return Err(Error::new("You don't have permission to comment on this task"));
+                }
+            },
+            EntityType::Project => {
+                let project_service = ctx.data::<ProjectService>()?;
+                let can_access = project_service
+                    .can_user_access_project(input.entity_id, auth_user.id)
+                    .await
+                    .map_err(|e| Error::new(format!("Failed to check project access: {}", e)))?;
+                
+                if !can_access {
+                    return Err(Error::new("You don't have permission to comment on this project"));
+                }
+            },
+            EntityType::User => {
+                // Users can comment on user profiles if they have user_management permission
+                use crate::auth::require_permission;
+                require_permission(ctx, "freshapi", "user_management").await?;
+            },
+            EntityType::Settings => {
+                // Only admins can comment on settings
+                use crate::auth::require_admin;
+                require_admin(ctx, "freshapi").await?;
+            },
+        }
+
+        let activity_service = ctx.data::<ActivityService>()?;
+
+        // Add comment through ActivityService
+        let activity = activity_service
+            .add_comment(
+                entity_type,
+                input.entity_id,
+                auth_user.id,
+                &input.content,
+                input.mentions,
+            )
+            .await
+            .map_err(|e| Error::new(format!("Failed to add comment: {}", e)))?;
+
+        Ok(activity.into())
     }
 }

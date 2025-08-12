@@ -1,11 +1,13 @@
 use async_graphql::*;
 use sea_orm::{EntityTrait, ColumnTrait, QueryFilter, QueryOrder};
+use uuid::Uuid;
 
 use crate::auth::{AuthenticatedUser, PermissionService, require_admin};
 use crate::graphql::types::{Invitation, User, Role, RoleWithPermissions, Permission, Resource, UserWithRole, Project, Task, TaskStats};
 use crate::graphql::DataLoaderContext;
-use crate::services::{InvitationService, UserService, ProjectService, TaskService};
-use crate::graphql::types::TaskStatus;
+use crate::services::{InvitationService, UserService, ProjectService, TaskService, ActivityService};
+use crate::services::activity::EntityType;
+use crate::graphql::types::{TaskStatus, Activity, GraphQLEntityType};
 
 pub struct QueryRoot;
 
@@ -453,5 +455,75 @@ impl QueryRoot {
             .map_err(|e| Error::new(format!("Failed to fetch user permissions: {}", e)))?;
 
         Ok(permissions.into_iter().map(|p| p.into()).collect())
+    }
+
+    // Generic activities query
+    async fn activities(
+        &self, 
+        ctx: &Context<'_>, 
+        entity_type: GraphQLEntityType,
+        entity_id: Uuid,
+        limit: Option<i32>,
+        offset: Option<i32>
+    ) -> Result<Vec<Activity>> {
+        let auth_user = ctx.data::<AuthenticatedUser>()?;
+
+        // Convert GraphQLEntityType to EntityType for ActivityService
+        let entity_type_enum = match entity_type {
+            GraphQLEntityType::Task => EntityType::Task,
+            GraphQLEntityType::Project => EntityType::Project,
+            GraphQLEntityType::User => EntityType::User,
+            GraphQLEntityType::Settings => EntityType::Settings,
+        };
+
+        // Verify user can access the entity they want to view activities for
+        match entity_type_enum {
+            EntityType::Task => {
+                let task_service = ctx.data::<TaskService>()?;
+                let can_access = task_service
+                    .can_user_access_task(entity_id, auth_user.id)
+                    .await
+                    .map_err(|e| Error::new(format!("Failed to check task access: {}", e)))?;
+                
+                if !can_access {
+                    return Err(Error::new("You don't have permission to view activities for this task"));
+                }
+            },
+            EntityType::Project => {
+                let project_service = ctx.data::<ProjectService>()?;
+                let can_access = project_service
+                    .can_user_access_project(entity_id, auth_user.id)
+                    .await
+                    .map_err(|e| Error::new(format!("Failed to check project access: {}", e)))?;
+                
+                if !can_access {
+                    return Err(Error::new("You don't have permission to view activities for this project"));
+                }
+            },
+            EntityType::User => {
+                // Users can view activities on user profiles if they have user_management permission
+                use crate::auth::require_permission;
+                require_permission(ctx, "freshapi", "user_management").await?;
+            },
+            EntityType::Settings => {
+                // Only admins can view activities on settings
+                use crate::auth::require_admin;
+                require_admin(ctx, "freshapi").await?;
+            },
+        }
+
+        let activity_service = ctx.data::<ActivityService>()?;
+
+        let activities = activity_service
+            .get_entity_activities(
+                entity_type_enum,
+                entity_id,
+                limit.map(|l| l.max(0) as u64),
+                offset.map(|o| o.max(0) as u64),
+            )
+            .await
+            .map_err(|e| Error::new(format!("Failed to fetch activities: {}", e)))?;
+
+        Ok(activities.into_iter().map(|a| a.into()).collect())
     }
 }

@@ -826,6 +826,19 @@ impl Task {
     }
 
     async fn activities(&self, ctx: &Context<'_>, limit: Option<i32>, offset: Option<i32>) -> Result<Vec<Activity>> {
+        let auth_user = ctx.data::<crate::auth::AuthenticatedUser>()?;
+        let task_service = ctx.data::<crate::services::TaskService>()?;
+        
+        // Verify user can access this task before showing activities
+        let can_access = task_service
+            .can_user_access_task(self.id, auth_user.id)
+            .await
+            .map_err(|e| Error::new(format!("Failed to check task access: {}", e)))?;
+        
+        if !can_access {
+            return Err(Error::new("You don't have permission to view activities for this task"));
+        }
+
         let activity_service = ctx.data::<crate::services::ActivityService>()?;
         
         let activities = activity_service
@@ -842,6 +855,19 @@ impl Task {
     }
 
     async fn activity_count(&self, ctx: &Context<'_>) -> Result<u32> {
+        let auth_user = ctx.data::<crate::auth::AuthenticatedUser>()?;
+        let task_service = ctx.data::<crate::services::TaskService>()?;
+        
+        // Verify user can access this task before showing activity count
+        let can_access = task_service
+            .can_user_access_task(self.id, auth_user.id)
+            .await
+            .map_err(|e| Error::new(format!("Failed to check task access: {}", e)))?;
+        
+        if !can_access {
+            return Err(Error::new("You don't have permission to view activity count for this task"));
+        }
+
         let activity_service = ctx.data::<crate::services::ActivityService>()?;
         
         let count = activity_service
@@ -927,3 +953,5 @@ pub struct TaskStats {
     pub cancelled: u32,
     pub overdue: u32,
 }
+
+// Comment system input types already defined above

@@ -25,6 +25,27 @@ impl TaskService {
         &self.db
     }
 
+    /// Check if user can view/access a specific task
+    pub async fn can_user_access_task(
+        &self,
+        task_id: Uuid,
+        user_id: Uuid,
+    ) -> Result<bool, Box<dyn std::error::Error>> {
+        let task = Task::find_by_id(task_id)
+            .one(&self.db)
+            .await?
+            .ok_or("Task not found")?;
+
+        // Check if user is a member of the project containing the task
+        let user_role = self
+            .project_service
+            .get_user_project_role(task.project_id, user_id)
+            .await?;
+
+        // User can access task if they are a project member (any role including viewer)
+        Ok(user_role.is_some())
+    }
+
     /// Create a new task
     pub async fn create_task(
         &self,
@@ -102,6 +123,13 @@ impl TaskService {
         self.activity_service
             .log_task_creation(task.id, creator_id, name, false, None)
             .await?;
+
+        // Log assignment activity if task was assigned during creation
+        if let Some(assignee_id) = assignee_id {
+            self.activity_service
+                .log_task_assignment(task.id, creator_id, None, Some(assignee_id))
+                .await?;
+        }
 
         Ok(task)
     }
@@ -329,11 +357,20 @@ impl TaskService {
             }
         }
 
+        // Store old assignee for activity logging
+        let old_assignee_id = task.assignee_id;
+
         let mut task_active: task::ActiveModel = task.into();
         task_active.assignee_id = Set(assignee_id);
         task_active.updated_at = Set(Utc::now().into());
 
         let updated_task = task_active.update(&self.db).await?;
+
+        // Log assignment activity
+        self.activity_service
+            .log_task_assignment(task_id, assigner_id, old_assignee_id, assignee_id)
+            .await?;
+
         Ok(updated_task)
     }
 
