@@ -47,16 +47,15 @@ impl MutationRoot {
         let user_service = ctx.data::<UserService>()?;
         let invitation_service = ctx.data::<InvitationService>()?;
 
-        // Validate and use invitation
-        let invitation = invitation_service
-            .use_invitation(&input.invitation_token)
+        // Validate invitation without marking as used
+        let _invitation = invitation_service
+            .validate_invitation_token(&input.invitation_token)
             .await
             .map_err(|e| Error::new(format!("Invalid invitation: {}", e)))?;
 
-        // Register user with invitation token
+        // Register user with invitation token (this will mark invitation as used within transaction)
         let (user, access_token, refresh_token) = user_service
             .register_user_with_invitation(
-                &invitation.email,
                 &input.password,
                 input.first_name,
                 input.last_name,

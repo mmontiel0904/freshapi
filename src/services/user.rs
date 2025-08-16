@@ -23,7 +23,6 @@ impl UserService {
 
     pub async fn register_user_with_invitation(
         &self,
-        email: &str,
         password: &str,
         first_name: Option<String>,
         last_name: Option<String>,
@@ -35,21 +34,21 @@ impl UserService {
         // Use transaction to ensure atomicity - OPTIMIZED
         let tx = self.db.begin().await?;
         
-        // Check if user already exists
-        if let Some(_) = User::find()
-            .filter(user::Column::Email.eq(email))
-            .one(&tx)
-            .await?
-        {
-            return Err("User with this email already exists".into());
-        }
-
-        // Get invitation to extract role_id if present
+        // Get invitation to extract email and role_id
         let invitation = Invitation::find()
             .filter(invitation::Column::Token.eq(invitation_token))
             .one(&tx)
             .await?
             .ok_or("Invalid invitation token")?;
+
+        // Check if user already exists with the invitation email
+        if let Some(_) = User::find()
+            .filter(user::Column::Email.eq(&invitation.email))
+            .one(&tx)
+            .await?
+        {
+            return Err("User with this email already exists".into());
+        }
 
         // Validate invitation hasn't been used and hasn't expired
         if invitation.is_used {
@@ -66,7 +65,7 @@ impl UserService {
         // Create user (skip email verification since invitation validates email)
         let new_user = user::ActiveModel {
             id: Set(Uuid::new_v4()),
-            email: Set(email.to_string()),
+            email: Set(invitation.email.clone()),
             password_hash: Set(password_hash),
             first_name: Set(first_name),
             last_name: Set(last_name),
@@ -86,14 +85,14 @@ impl UserService {
         let user = new_user.insert(&tx).await?;
 
         // Mark invitation as used - within same transaction
-        let mut invitation_active: invitation::ActiveModel = invitation.into();
+        let mut invitation_active: invitation::ActiveModel = invitation.clone().into();
         invitation_active.is_used = Set(true);
         invitation_active.used_at = Set(Some(Utc::now().into()));
         invitation_active.updated_at = Set(Utc::now().into());
         invitation_active.update(&tx).await?;
 
         // Generate tokens for immediate login
-        let access_token = self.jwt_service.generate_access_token(user.id, &user.email)?;
+        let access_token = self.jwt_service.generate_access_token(user.id, &invitation.email)?;
         let refresh_token = self.jwt_service.generate_refresh_token();
         let refresh_expires = self.jwt_service.get_refresh_token_expiration();
 
