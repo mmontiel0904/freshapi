@@ -290,6 +290,12 @@ pub struct MessageResponse {
 }
 
 #[derive(SimpleObject)]
+pub struct CompleteTaskWithRecurrenceResponse {
+    pub original_task: Task,
+    pub next_instance: Option<Task>,
+}
+
+#[derive(SimpleObject)]
 pub struct Invitation {
     pub id: Uuid,
     pub email: String,

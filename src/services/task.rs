@@ -489,7 +489,20 @@ impl TaskService {
             RecurrenceType::Weekly => Ok(current_due + Duration::weeks(1)),
             RecurrenceType::Monthly => {
                 if let Some(day) = recurrence_day {
-                    // Try to set to the same day next month
+                    // Use the specified day for monthly recurrence
+                    let mut next_month = if current_due.month() == 12 {
+                        current_due.with_year(current_due.year() + 1).unwrap().with_month(1).unwrap()
+                    } else {
+                        current_due.with_month(current_due.month() + 1).unwrap()
+                    };
+                    
+                    // Handle end-of-month cases (e.g., Jan 31 -> Feb 28)
+                    let target_day = std::cmp::min(day as u32, days_in_month(next_month.year(), next_month.month()));
+                    next_month = next_month.with_day(target_day).unwrap();
+                    Ok(next_month)
+                } else {
+                    // Use current day but move to next month
+                    let current_day = current_due.day();
                     let mut next_month = if current_due.month() == 12 {
                         current_due.with_year(current_due.year() + 1).unwrap().with_month(1).unwrap()
                     } else {
@@ -497,23 +510,21 @@ impl TaskService {
                     };
                     
                     // Handle end-of-month cases
-                    let target_day = std::cmp::min(day as u32, days_in_month(next_month.year(), next_month.month()));
+                    let target_day = std::cmp::min(current_day, days_in_month(next_month.year(), next_month.month()));
                     next_month = next_month.with_day(target_day).unwrap();
                     Ok(next_month)
-                } else {
-                    // Default to same day next month
-                    Ok(current_due + Duration::days(30))
                 }
             },
         }
     }
 
     /// Complete a task and create recurring instance if needed
+    /// Returns (completed_task, next_instance)
     pub async fn complete_task_with_recurrence(
         &self,
         task_id: Uuid,
         actor_id: Uuid,
-    ) -> Result<Option<task::Model>, Box<dyn std::error::Error>> {
+    ) -> Result<(task::Model, Option<task::Model>), Box<dyn std::error::Error>> {
         let task = Task::find_by_id(task_id)
             .one(&self.db)
             .await?
@@ -539,7 +550,7 @@ impl TaskService {
         task_active.status = Set(TaskStatus::Completed);
         task_active.updated_at = Set(Utc::now().into());
 
-        let _completed_task = task_active.update(&self.db).await?;
+        let completed_task = task_active.update(&self.db).await?;
 
         // Create next recurring instance if needed
         let next_instance = if task.is_recurring {
@@ -596,7 +607,7 @@ impl TaskService {
             .log_task_completion(task_id, actor_id, next_instance.as_ref().map(|t| t.id))
             .await?;
 
-        Ok(next_instance)
+        Ok((completed_task, next_instance))
     }
 }
 

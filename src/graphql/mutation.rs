@@ -3,7 +3,7 @@ use sea_orm::{EntityTrait, ActiveModelTrait, Set, ColumnTrait, QueryFilter, Pagi
 use chrono::Utc;
 
 use crate::auth::require_user_management;
-use crate::graphql::types::{AcceptInvitationInput, AdminResetUserPasswordInput, AuthPayload, ChangePasswordInput, Invitation, InviteUserInput, InviteUserWithRoleInput, LoginInput, MessageResponse, RefreshTokenInput, RegisterInput, RequestPasswordResetInput, ResetPasswordInput, User, AssignRoleInput, Project, Task, CreateProjectInput, UpdateProjectInput, AddProjectMemberInput, UpdateMemberRoleInput, RemoveProjectMemberInput, CreateTaskInput, UpdateTaskInput, AssignTaskInput, Role, Permission, Resource, CreateRoleInput, UpdateRoleInput, CreatePermissionInput, UpdatePermissionInput, CreateResourceInput, UpdateResourceInput, AssignPermissionToRoleInput, RemovePermissionFromRoleInput, GrantUserPermissionInput, RevokeUserPermissionInput, AddCommentInput, Activity, GraphQLEntityType};
+use crate::graphql::types::{AcceptInvitationInput, AdminResetUserPasswordInput, AuthPayload, ChangePasswordInput, Invitation, InviteUserInput, InviteUserWithRoleInput, LoginInput, MessageResponse, RefreshTokenInput, RegisterInput, RequestPasswordResetInput, ResetPasswordInput, User, AssignRoleInput, Project, Task, CreateProjectInput, UpdateProjectInput, AddProjectMemberInput, UpdateMemberRoleInput, RemoveProjectMemberInput, CreateTaskInput, UpdateTaskInput, AssignTaskInput, Role, Permission, Resource, CreateRoleInput, UpdateRoleInput, CreatePermissionInput, UpdatePermissionInput, CreateResourceInput, UpdateResourceInput, AssignPermissionToRoleInput, RemovePermissionFromRoleInput, GrantUserPermissionInput, RevokeUserPermissionInput, AddCommentInput, Activity, GraphQLEntityType, CompleteTaskWithRecurrenceResponse};
 use crate::services::{EmailService, InvitationService, UserService, ProjectService, TaskService, ProjectRole, ActivityService};
 use crate::services::activity::EntityType;
 // Task enums imported when needed
@@ -479,6 +479,25 @@ impl MutationRoot {
             
         Ok(MessageResponse {
             message: "Task deleted successfully".to_string(),
+        })
+    }
+
+    async fn complete_task_with_recurrence(&self, ctx: &Context<'_>, task_id: uuid::Uuid) -> Result<CompleteTaskWithRecurrenceResponse> {
+        use crate::auth::require_permission;
+        require_permission(ctx, "task_system", "task_write").await?;
+        
+        let task_service = ctx.data::<TaskService>()?;
+        let authenticated_user = ctx.data::<crate::auth::AuthenticatedUser>()?;
+        
+        // Complete the task and get both the completed task and next instance (if recurring)
+        let (completed_task, next_instance) = task_service
+            .complete_task_with_recurrence(task_id, authenticated_user.id)
+            .await
+            .map_err(|e| Error::new(format!("Failed to complete recurring task: {}", e)))?;
+        
+        Ok(CompleteTaskWithRecurrenceResponse {
+            original_task: completed_task.into(),
+            next_instance: next_instance.map(|t| t.into()),
         })
     }
 
