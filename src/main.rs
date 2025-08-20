@@ -87,6 +87,7 @@ async fn graphql_handler(
     }
     
     request = request
+        .data(state.db.clone())
         .data(state.permission_service.clone())
         .data(state.dataloader_context.clone())
         .data(state.user_service.clone())
