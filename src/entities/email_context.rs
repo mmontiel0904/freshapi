@@ -33,8 +33,8 @@ pub struct Model {
     pub message_id: Option<String>,
     pub thread_id: Option<String>,
     pub in_reply_to: Option<String>,
-    pub message_date: Option<DateTime>,
-    pub received_date: DateTime,
+    pub message_date: Option<DateTimeWithTimeZone>,
+    pub received_date: DateTimeWithTimeZone,
     
     // Attachments
     pub has_attachments: bool,

@@ -16,7 +16,7 @@ pub struct Model {
     pub storage_path: String,
     pub extracted_text: Option<String>,
     pub is_processed: bool,
-    pub created_at: DateTime,
+    pub created_at: DateTimeWithTimeZone,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

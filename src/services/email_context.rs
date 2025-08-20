@@ -62,8 +62,8 @@ impl EmailContextService {
                         description: Set(Some("Auto-created from email ingestion".to_string())),
                         is_active: Set(true),
                         created_by: Set(Uuid::new_v4()), // System user - could be configurable
-                        created_at: Set(Utc::now().naive_utc()),
-                        updated_at: Set(Utc::now().naive_utc()),
+                        created_at: Set(Utc::now().into()),
+                        updated_at: Set(Utc::now().into()),
                     };
 
                     let created_category = new_category.insert(&txn).await?;
@@ -117,8 +117,8 @@ impl EmailContextService {
             }))),
             is_archived: Set(false),
             created_by: Set(None), // From webhook
-            created_at: Set(Utc::now().naive_utc()),
-            updated_at: Set(Utc::now().naive_utc()),
+            created_at: Set(Utc::now().into()),
+            updated_at: Set(Utc::now().into()),
         };
 
         project_context.insert(&txn).await?;
@@ -150,8 +150,8 @@ impl EmailContextService {
             message_id: Set(input.message_id),
             thread_id: Set(input.thread_id),
             in_reply_to: Set(input.in_reply_to),
-            message_date: Set(input.message_date.map(|dt| dt.naive_utc())),
-            received_date: Set(Utc::now().naive_utc()),
+            message_date: Set(input.message_date.map(|dt| dt.into())),
+            received_date: Set(Utc::now().into()),
             has_attachments: Set(input.has_attachments.unwrap_or(false)),
             attachment_count: Set(input.attachment_count.unwrap_or(0)),
             processing_status: Set(ProcessingStatus::Completed.as_str().to_string()),

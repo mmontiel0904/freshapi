@@ -82,8 +82,8 @@ impl ContextService {
             description: Set(input.description),
             is_active: Set(true),
             created_by: Set(created_by),
-            created_at: Set(Utc::now().naive_utc()),
-            updated_at: Set(Utc::now().naive_utc()),
+            created_at: Set(Utc::now().into()),
+            updated_at: Set(Utc::now().into()),
         };
 
         category.insert(&self.db).await.map_err(Into::into)
@@ -130,7 +130,7 @@ impl ContextService {
             category.is_active = Set(is_active);
         }
 
-        category.updated_at = Set(Utc::now().naive_utc());
+        category.updated_at = Set(Utc::now().into());
 
         category.update(&self.db).await.map_err(Into::into)
     }
@@ -144,7 +144,7 @@ impl ContextService {
 
         let mut category: project_context_category::ActiveModel = category.into();
         category.is_active = Set(false);
-        category.updated_at = Set(Utc::now().naive_utc());
+        category.updated_at = Set(Utc::now().into());
 
         category.update(&self.db).await?;
         Ok(())
@@ -263,7 +263,7 @@ impl ContextService {
 
         let mut context: project_context::ActiveModel = context.into();
         context.is_archived = Set(true);
-        context.updated_at = Set(Utc::now().naive_utc());
+        context.updated_at = Set(Utc::now().into());
 
         context.update(&self.db).await.map_err(Into::into)
     }
@@ -276,7 +276,7 @@ impl ContextService {
 
         let mut context: project_context::ActiveModel = context.into();
         context.is_archived = Set(false);
-        context.updated_at = Set(Utc::now().naive_utc());
+        context.updated_at = Set(Utc::now().into());
 
         context.update(&self.db).await.map_err(Into::into)
     }

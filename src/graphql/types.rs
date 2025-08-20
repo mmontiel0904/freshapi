@@ -1077,8 +1077,8 @@ impl From<crate::entities::context_type::Model> for ContextType {
             description: context_type.description,
             schema_version: context_type.schema_version,
             is_active: context_type.is_active,
-            created_at: context_type.created_at.and_utc(),
-            updated_at: context_type.updated_at.and_utc(),
+            created_at: context_type.created_at.to_utc(),
+            updated_at: context_type.updated_at.to_utc(),
         }
     }
 }
@@ -1108,8 +1108,8 @@ impl From<crate::entities::project_context_category::Model> for ProjectContextCa
             description: category.description,
             is_active: category.is_active,
             created_by: category.created_by,
-            created_at: category.created_at.and_utc(),
-            updated_at: category.updated_at.and_utc(),
+            created_at: category.created_at.to_utc(),
+            updated_at: category.updated_at.to_utc(),
         }
     }
 }
@@ -1142,8 +1142,8 @@ impl From<crate::entities::project_context::Model> for ProjectContext {
             tags: context.tags,
             is_archived: context.is_archived,
             created_by: context.created_by,
-            created_at: context.created_at.and_utc(),
-            updated_at: context.updated_at.and_utc(),
+            created_at: context.created_at.to_utc(),
+            updated_at: context.updated_at.to_utc(),
         }
     }
 }
@@ -1200,8 +1200,8 @@ impl From<crate::entities::email_context::Model> for EmailContext {
             message_id: email.message_id,
             thread_id: email.thread_id,
             in_reply_to: email.in_reply_to,
-            message_date: email.message_date.map(|dt| dt.and_utc()),
-            received_date: email.received_date.and_utc(),
+            message_date: email.message_date.map(|dt| dt.to_utc()),
+            received_date: email.received_date.to_utc(),
             has_attachments: email.has_attachments,
             attachment_count: email.attachment_count,
             processing_status: ProcessingStatus::from_str(&email.processing_status).unwrap_or(ProcessingStatus::Completed),
@@ -1319,7 +1319,7 @@ impl From<crate::entities::email_attachment::Model> for EmailAttachment {
             storage_path: attachment.storage_path,
             extracted_text: attachment.extracted_text,
             is_processed: attachment.is_processed,
-            created_at: attachment.created_at.and_utc(),
+            created_at: attachment.created_at.to_utc(),
         }
     }
 }
