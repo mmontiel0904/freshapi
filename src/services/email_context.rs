@@ -61,7 +61,7 @@ impl EmailContextService {
                         color: Set("#10b981".to_string()), // Green for auto-created email categories
                         description: Set(Some("Auto-created from email ingestion".to_string())),
                         is_active: Set(true),
-                        created_by: Set(Uuid::new_v4()), // System user - could be configurable
+                        created_by: Set(None), // System-generated category
                         created_at: Set(Utc::now().into()),
                         updated_at: Set(Utc::now().into()),
                     };

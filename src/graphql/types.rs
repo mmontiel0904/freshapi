@@ -1092,7 +1092,7 @@ pub struct ProjectContextCategory {
     pub color: String,
     pub description: Option<String>,
     pub is_active: bool,
-    pub created_by: Uuid,
+    pub created_by: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

@@ -50,7 +50,7 @@ impl ContextService {
     pub async fn create_context_category(
         &self,
         input: CreateContextCategoryInput,
-        created_by: Uuid,
+        created_by: Option<Uuid>,
     ) -> Result<project_context_category::Model> {
         // Get context type by name
         let context_type = self.get_context_type_by_name(&input.context_type_name)

@@ -1170,7 +1170,7 @@ impl MutationRoot {
         let authenticated_user = ctx.data::<AuthenticatedUser>()?;
 
         let category = context_service
-            .create_context_category(input, authenticated_user.id)
+            .create_context_category(input, Some(authenticated_user.id))
             .await
             .map_err(|e| Error::new(format!("Failed to create category: {}", e)))?;
 
