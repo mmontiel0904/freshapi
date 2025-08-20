@@ -4,7 +4,7 @@ use rust_decimal::Decimal;
 use crate::graphql::types::AccountingProcess;
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel, Serialize, Deserialize)]
-#[sea_orm(table_name = "email_contexts")]
+#[sea_orm(table_name = "email_context")]
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: Uuid,
