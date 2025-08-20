@@ -21,6 +21,7 @@ pub struct Model {
     pub recurrence_day: Option<i32>,
     pub is_recurring: bool,
     pub parent_task_id: Option<Uuid>,
+    pub context_id: Option<Uuid>,
     pub due_date: Option<DateTimeWithTimeZone>,
     pub next_due_date: Option<DateTimeWithTimeZone>,
     pub created_at: DateTimeWithTimeZone,
@@ -61,11 +62,25 @@ pub enum Relation {
         on_delete = "SetNull"
     )]
     SelfRef,
+    #[sea_orm(
+        belongs_to = "super::project_context::Entity",
+        from = "Column::ContextId",
+        to = "super::project_context::Column::Id",
+        on_update = "NoAction",
+        on_delete = "SetNull"
+    )]
+    ProjectContext,
 }
 
 impl Related<super::project::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Project.def()
+    }
+}
+
+impl Related<super::project_context::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::ProjectContext.def()
     }
 }
 

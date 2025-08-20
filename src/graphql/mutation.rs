@@ -1282,4 +1282,21 @@ impl MutationRoot {
 
         Ok(context.into())
     }
+
+    /// Create a task directly from a context element
+    async fn create_task_from_context(
+        &self,
+        ctx: &Context<'_>,
+        input: crate::graphql::types::CreateTaskFromContextInput,
+    ) -> Result<crate::graphql::types::Task> {
+        let task_service = ctx.data::<crate::services::TaskService>()?;
+        let authenticated_user = ctx.data::<AuthenticatedUser>()?;
+
+        let task = task_service
+            .create_task_from_context(input, authenticated_user.id)
+            .await
+            .map_err(|e| Error::new(format!("Failed to create task from context: {}", e)))?;
+
+        Ok(task.into())
+    }
 }

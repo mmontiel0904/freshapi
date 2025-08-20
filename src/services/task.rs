@@ -105,6 +105,7 @@ impl TaskService {
             project_id: Set(project_id),
             assignee_id: Set(assignee_id),
             creator_id: Set(creator_id),
+            context_id: Set(None),
             status: Set(TaskStatus::Todo),
             priority: Set(priority.unwrap_or(TaskPriority::Medium)),
             recurrence_type: Set(recurrence),
@@ -572,6 +573,7 @@ impl TaskService {
                 project_id: Set(task.project_id),
                 assignee_id: Set(task.assignee_id),
                 creator_id: Set(task.creator_id),
+                context_id: Set(task.context_id),
                 status: Set(TaskStatus::Todo),
                 priority: Set(task.priority.clone()),
                 recurrence_type: Set(task.recurrence_type.clone()),
@@ -608,6 +610,88 @@ impl TaskService {
             .await?;
 
         Ok((completed_task, next_instance))
+    }
+
+    /// Create a task directly from a context element
+    /// Efficiently uses the context's inherited project relationship
+    pub async fn create_task_from_context(
+        &self,
+        input: crate::graphql::types::CreateTaskFromContextInput,
+        creator_id: Uuid,
+    ) -> Result<task::Model, Box<dyn std::error::Error>> {
+        // First, get the context to extract the project_id
+        let context = crate::entities::project_context::Entity::find_by_id(input.context_id)
+            .one(&self.db)
+            .await?
+            .ok_or("Context not found")?;
+
+        // Verify user can create tasks in this project using inherited project_id
+        let creator_role = self
+            .project_service
+            .get_user_project_role(context.project_id, creator_id)
+            .await?;
+
+        match creator_role {
+            Some(role) if role.can_manage_tasks() => {},
+            _ => return Err("You don't have permission to create tasks in this project".into()),
+        }
+
+        // Validate assignee if provided
+        if let Some(assignee_id) = input.assignee_id {
+            let assignee_role = self
+                .project_service
+                .get_user_project_role(context.project_id, assignee_id)
+                .await?;
+
+            if assignee_role.is_none() {
+                return Err("Assignee is not a member of this project".into());
+            }
+        }
+
+        // Create the task with context relationship
+        let task_id = Uuid::new_v4();
+        let now = Utc::now();
+        
+        let new_task = task::ActiveModel {
+            id: Set(task_id),
+            name: Set(input.name),
+            description: Set(input.description),
+            project_id: Set(context.project_id), // Use inherited project_id from context
+            context_id: Set(Some(input.context_id)), // Link to the source context
+            assignee_id: Set(input.assignee_id),
+            creator_id: Set(creator_id),
+            status: Set(TaskStatus::Todo),
+            priority: Set(input.priority.unwrap_or(TaskPriority::Medium)),
+            recurrence_type: Set(RecurrenceType::None),
+            recurrence_day: Set(None),
+            is_recurring: Set(false),
+            parent_task_id: Set(None),
+            due_date: Set(input.due_date.map(|dt| dt.into())),
+            next_due_date: Set(None),
+            created_at: Set(now.into()),
+            updated_at: Set(now.into()),
+        };
+
+        let task = new_task.insert(&self.db).await?;
+
+        // Log activity for task creation from context
+        self.activity_service
+            .log_activity(
+                crate::services::activity::EntityType::Task,
+                task.id,
+                creator_id,
+                "created_from_context",
+                Some(format!("Task created from context: {}", context.title)),
+                Some(serde_json::json!({
+                    "context_id": input.context_id,
+                    "context_title": context.title,
+                    "project_id": context.project_id
+                })),
+                None, // No changes for creation
+            )
+            .await?;
+
+        Ok(task)
     }
 }
 

@@ -856,6 +856,7 @@ pub struct Task {
     pub recurrence_day: Option<i32>,
     pub is_recurring: bool,
     pub parent_task_id: Option<Uuid>,
+    pub context_id: Option<Uuid>,
     pub due_date: Option<DateTime<Utc>>,
     pub next_due_date: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
@@ -877,6 +878,7 @@ impl From<crate::entities::task::Model> for Task {
             recurrence_day: task.recurrence_day,
             is_recurring: task.is_recurring,
             parent_task_id: task.parent_task_id,
+            context_id: task.context_id,
             due_date: task.due_date.map(|dt| dt.into()),
             next_due_date: task.next_due_date.map(|dt| dt.into()),
             created_at: task.created_at.into(),
@@ -1012,6 +1014,21 @@ impl Task {
             
         Ok(instances.into_iter().map(|t| t.into()).collect())
     }
+
+    async fn context(&self, ctx: &Context<'_>) -> Result<Option<ProjectContext>> {
+        if let Some(context_id) = self.context_id {
+            let db = ctx.data::<sea_orm::DatabaseConnection>()?;
+            
+            let context = crate::entities::project_context::Entity::find_by_id(context_id)
+                .one(db)
+                .await
+                .map_err(|e| Error::new(format!("Failed to fetch context: {}", e)))?;
+                
+            Ok(context.map(|c| c.into()))
+        } else {
+            Ok(None)
+        }
+    }
 }
 
 #[derive(InputObject)]
@@ -1023,6 +1040,16 @@ pub struct CreateTaskInput {
     pub priority: Option<TaskPriority>,
     pub recurrence_type: Option<RecurrenceType>,
     pub recurrence_day: Option<i32>,
+    pub due_date: Option<DateTime<Utc>>,
+}
+
+#[derive(InputObject)]
+pub struct CreateTaskFromContextInput {
+    pub context_id: Uuid,
+    pub name: String,
+    pub description: Option<String>,
+    pub assignee_id: Option<Uuid>,
+    pub priority: Option<TaskPriority>,
     pub due_date: Option<DateTime<Utc>>,
 }
 
