@@ -14,6 +14,7 @@ mod m20250104_000002_seed_task_permissions;
 mod m20250808_000001_add_task_recurrence_and_activities;
 mod m20250119_000001_create_projectmind_system;
 mod m20250820_025047_make_created_by_nullable_in_project_context_categories;
+mod m20250820_215425_add_context_id_to_tasks;
 
 pub struct Migrator;
 
@@ -33,6 +34,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20250808_000001_add_task_recurrence_and_activities::Migration),
             Box::new(m20250119_000001_create_projectmind_system::Migration),
             Box::new(m20250820_025047_make_created_by_nullable_in_project_context_categories::Migration),
+            Box::new(m20250820_215425_add_context_id_to_tasks::Migration),
         ]
     }
 }
