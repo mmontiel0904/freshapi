@@ -128,6 +128,100 @@ impl TaskPriority {
     }
 }
 
+// ProjectMind system enums
+#[derive(Enum, Copy, Clone, Eq, PartialEq, Hash, Debug, DeriveActiveEnum, Serialize, Deserialize, EnumIter)]
+#[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "accounting_process_enum")]
+#[graphql(name = "AccountingProcess")]
+pub enum AccountingProcess {
+    #[graphql(name = "AP")]
+    #[sea_orm(string_value = "AP")]
+    AccountsPayable,
+    #[graphql(name = "AR")]
+    #[sea_orm(string_value = "AR")]
+    AccountsReceivable,
+    #[graphql(name = "BR")]
+    #[sea_orm(string_value = "BR")]
+    BankReconciliation,
+    #[graphql(name = "REPORTING")]
+    #[sea_orm(string_value = "Reporting")]
+    Reporting,
+    #[graphql(name = "GENERAL")]
+    #[sea_orm(string_value = "General")]
+    General,
+    #[graphql(name = "TAX")]
+    #[sea_orm(string_value = "Tax")]
+    Tax,
+    #[graphql(name = "PAYROLL")]
+    #[sea_orm(string_value = "Payroll")]
+    Payroll,
+    #[graphql(name = "AUDIT")]
+    #[sea_orm(string_value = "Audit")]
+    Audit,
+}
+
+impl AccountingProcess {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            AccountingProcess::AccountsPayable => "AP",
+            AccountingProcess::AccountsReceivable => "AR",
+            AccountingProcess::BankReconciliation => "BR",
+            AccountingProcess::Reporting => "Reporting",
+            AccountingProcess::General => "General",
+            AccountingProcess::Tax => "Tax",
+            AccountingProcess::Payroll => "Payroll",
+            AccountingProcess::Audit => "Audit",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "AP" => Some(AccountingProcess::AccountsPayable),
+            "AR" => Some(AccountingProcess::AccountsReceivable),
+            "BR" => Some(AccountingProcess::BankReconciliation),
+            "Reporting" => Some(AccountingProcess::Reporting),
+            "General" => Some(AccountingProcess::General),
+            "Tax" => Some(AccountingProcess::Tax),
+            "Payroll" => Some(AccountingProcess::Payroll),
+            "Audit" => Some(AccountingProcess::Audit),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Enum, Copy, Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
+#[graphql(name = "ProcessingStatus")]
+pub enum ProcessingStatus {
+    #[graphql(name = "PENDING")]
+    Pending,
+    #[graphql(name = "COMPLETED")]
+    Completed,
+    #[graphql(name = "FAILED")]
+    Failed,
+    #[graphql(name = "MANUAL_REVIEW")]
+    ManualReview,
+}
+
+impl ProcessingStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ProcessingStatus::Pending => "pending",
+            ProcessingStatus::Completed => "completed",
+            ProcessingStatus::Failed => "failed",
+            ProcessingStatus::ManualReview => "manual_review",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "pending" => Some(ProcessingStatus::Pending),
+            "completed" => Some(ProcessingStatus::Completed),
+            "failed" => Some(ProcessingStatus::Failed),
+            "manual_review" => Some(ProcessingStatus::ManualReview),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Enum, Copy, Clone, Eq, PartialEq, Debug)]
 #[graphql(name = "EntityType")]
 pub enum GraphQLEntityType {
@@ -958,6 +1052,361 @@ pub struct TaskStats {
     pub completed: u32,
     pub cancelled: u32,
     pub overdue: u32,
+}
+
+// ============================================================================
+// ProjectMind Context System Types
+// ============================================================================
+
+#[derive(SimpleObject)]
+pub struct ContextType {
+    pub id: Uuid,
+    pub name: String,
+    pub description: Option<String>,
+    pub schema_version: i32,
+    pub is_active: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl From<crate::entities::context_type::Model> for ContextType {
+    fn from(context_type: crate::entities::context_type::Model) -> Self {
+        Self {
+            id: context_type.id,
+            name: context_type.name,
+            description: context_type.description,
+            schema_version: context_type.schema_version,
+            is_active: context_type.is_active,
+            created_at: context_type.created_at.and_utc(),
+            updated_at: context_type.updated_at.and_utc(),
+        }
+    }
+}
+
+#[derive(SimpleObject)]
+pub struct ProjectContextCategory {
+    pub id: Uuid,
+    pub project_id: Uuid,
+    pub context_type_id: Uuid,
+    pub name: String,
+    pub color: String,
+    pub description: Option<String>,
+    pub is_active: bool,
+    pub created_by: Uuid,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl From<crate::entities::project_context_category::Model> for ProjectContextCategory {
+    fn from(category: crate::entities::project_context_category::Model) -> Self {
+        Self {
+            id: category.id,
+            project_id: category.project_id,
+            context_type_id: category.context_type_id,
+            name: category.name,
+            color: category.color,
+            description: category.description,
+            is_active: category.is_active,
+            created_by: category.created_by,
+            created_at: category.created_at.and_utc(),
+            updated_at: category.updated_at.and_utc(),
+        }
+    }
+}
+
+#[derive(SimpleObject)]
+#[graphql(complex)]
+pub struct ProjectContext {
+    pub id: Uuid,
+    pub project_id: Uuid,
+    pub context_type_id: Uuid,
+    pub category_id: Option<Uuid>,
+    pub title: String,
+    pub description: Option<String>,
+    pub tags: Option<Vec<String>>,
+    pub is_archived: bool,
+    pub created_by: Option<Uuid>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl From<crate::entities::project_context::Model> for ProjectContext {
+    fn from(context: crate::entities::project_context::Model) -> Self {
+        Self {
+            id: context.id,
+            project_id: context.project_id,
+            context_type_id: context.context_type_id,
+            category_id: context.category_id,
+            title: context.title,
+            description: context.description,
+            tags: context.tags,
+            is_archived: context.is_archived,
+            created_by: context.created_by,
+            created_at: context.created_at.and_utc(),
+            updated_at: context.updated_at.and_utc(),
+        }
+    }
+}
+
+#[derive(SimpleObject)]
+#[graphql(complex)]
+pub struct EmailContext {
+    pub id: Uuid,
+    pub from_email: String,
+    pub from_name: Option<String>,
+    pub to_emails: Vec<String>,
+    pub cc_emails: Option<Vec<String>>,
+    pub bcc_emails: Option<Vec<String>>,
+    pub reply_to: Option<String>,
+    pub subject: String,
+    pub message_preview: Option<String>,
+    pub full_message: String,
+    pub message_html: Option<String>,
+    pub accounting_process: AccountingProcess,
+    pub ai_summary: Option<String>,
+    #[graphql(skip)]
+    pub confidence_score: Option<rust_decimal::Decimal>,
+    #[graphql(skip)]
+    pub extracted_entities: Option<serde_json::Value>,
+    pub message_id: Option<String>,
+    pub thread_id: Option<String>,
+    pub in_reply_to: Option<String>,
+    pub message_date: Option<DateTime<Utc>>,
+    pub received_date: DateTime<Utc>,
+    pub has_attachments: bool,
+    pub attachment_count: i32,
+    pub processing_status: ProcessingStatus,
+    pub processing_notes: Option<String>,
+}
+
+impl From<crate::entities::email_context::Model> for EmailContext {
+    fn from(email: crate::entities::email_context::Model) -> Self {
+        Self {
+            id: email.id,
+            from_email: email.from_email,
+            from_name: email.from_name,
+            to_emails: email.to_emails,
+            cc_emails: email.cc_emails,
+            bcc_emails: email.bcc_emails,
+            reply_to: email.reply_to,
+            subject: email.subject,
+            message_preview: email.message_preview,
+            full_message: email.full_message,
+            message_html: email.message_html,
+            accounting_process: email.accounting_process,
+            ai_summary: email.ai_summary,
+            confidence_score: email.confidence_score,
+            extracted_entities: email.extracted_entities,
+            message_id: email.message_id,
+            thread_id: email.thread_id,
+            in_reply_to: email.in_reply_to,
+            message_date: email.message_date.map(|dt| dt.and_utc()),
+            received_date: email.received_date.and_utc(),
+            has_attachments: email.has_attachments,
+            attachment_count: email.attachment_count,
+            processing_status: ProcessingStatus::from_str(&email.processing_status).unwrap_or(ProcessingStatus::Completed),
+            processing_notes: email.processing_notes,
+        }
+    }
+}
+
+// Complex resolvers for relationships
+#[ComplexObject]
+impl ProjectContext {
+    async fn context_type(&self, ctx: &Context<'_>) -> Result<ContextType> {
+        let db = ctx.data::<sea_orm::DatabaseConnection>()?;
+        
+        let context_type = crate::entities::context_type::Entity::find_by_id(self.context_type_id)
+            .one(db)
+            .await
+            .map_err(|e| Error::new(format!("Failed to fetch context type: {}", e)))?
+            .ok_or_else(|| Error::new("Context type not found"))?;
+            
+        Ok(context_type.into())
+    }
+    
+    async fn category(&self, ctx: &Context<'_>) -> Result<Option<ProjectContextCategory>> {
+        if let Some(category_id) = self.category_id {
+            let db = ctx.data::<sea_orm::DatabaseConnection>()?;
+            
+            let category = crate::entities::project_context_category::Entity::find_by_id(category_id)
+                .one(db)
+                .await
+                .map_err(|e| Error::new(format!("Failed to fetch category: {}", e)))?;
+                
+            Ok(category.map(|c| c.into()))
+        } else {
+            Ok(None)
+        }
+    }
+    
+    async fn project(&self, ctx: &Context<'_>) -> Result<Project> {
+        let project_service = ctx.data::<crate::services::ProjectService>()?;
+        
+        let project = crate::entities::project::Entity::find_by_id(self.project_id)
+            .one(project_service.get_db())
+            .await
+            .map_err(|e| Error::new(format!("Failed to fetch project: {}", e)))?
+            .ok_or_else(|| Error::new("Project not found"))?;
+            
+        Ok(project.into())
+    }
+    
+    async fn email_context(&self, ctx: &Context<'_>) -> Result<Option<EmailContext>> {
+        let db = ctx.data::<sea_orm::DatabaseConnection>()?;
+        
+        let email = crate::entities::email_context::Entity::find_by_id(self.id)
+            .one(db)
+            .await
+            .map_err(|e| Error::new(format!("Failed to fetch email context: {}", e)))?;
+            
+        Ok(email.map(|e| e.into()))
+    }
+}
+
+#[ComplexObject]
+impl EmailContext {
+    async fn project_context(&self, ctx: &Context<'_>) -> Result<ProjectContext> {
+        let db = ctx.data::<sea_orm::DatabaseConnection>()?;
+        
+        let context = crate::entities::project_context::Entity::find_by_id(self.id)
+            .one(db)
+            .await
+            .map_err(|e| Error::new(format!("Failed to fetch project context: {}", e)))?
+            .ok_or_else(|| Error::new("Project context not found"))?;
+            
+        Ok(context.into())
+    }
+    
+    async fn attachments(&self, ctx: &Context<'_>) -> Result<Vec<EmailAttachment>> {
+        let db = ctx.data::<sea_orm::DatabaseConnection>()?;
+        
+        let attachments = crate::entities::email_attachment::Entity::find()
+            .filter(crate::entities::email_attachment::Column::EmailContextId.eq(self.id))
+            .all(db)
+            .await
+            .map_err(|e| Error::new(format!("Failed to fetch attachments: {}", e)))?;
+            
+        Ok(attachments.into_iter().map(|a| a.into()).collect())
+    }
+}
+
+#[derive(SimpleObject)]
+pub struct EmailAttachment {
+    pub id: Uuid,
+    pub email_context_id: Uuid,
+    pub filename: String,
+    pub original_filename: String,
+    pub file_size: Option<i64>,
+    pub content_type: Option<String>,
+    pub file_hash: Option<String>,
+    pub storage_path: String,
+    pub extracted_text: Option<String>,
+    pub is_processed: bool,
+    pub created_at: DateTime<Utc>,
+}
+
+impl From<crate::entities::email_attachment::Model> for EmailAttachment {
+    fn from(attachment: crate::entities::email_attachment::Model) -> Self {
+        Self {
+            id: attachment.id,
+            email_context_id: attachment.email_context_id,
+            filename: attachment.filename,
+            original_filename: attachment.original_filename,
+            file_size: attachment.file_size,
+            content_type: attachment.content_type,
+            file_hash: attachment.file_hash,
+            storage_path: attachment.storage_path,
+            extracted_text: attachment.extracted_text,
+            is_processed: attachment.is_processed,
+            created_at: attachment.created_at.and_utc(),
+        }
+    }
+}
+
+// Input Types for Mutations
+#[derive(InputObject)]
+pub struct CreateContextCategoryInput {
+    pub project_id: Uuid,
+    pub context_type_name: String, // "email", "document", etc.
+    pub name: String,
+    pub color: Option<String>,
+    pub description: Option<String>,
+}
+
+#[derive(InputObject)]
+pub struct UpdateContextCategoryInput {
+    pub category_id: Uuid,
+    pub name: Option<String>,
+    pub color: Option<String>,
+    pub description: Option<Option<String>>,
+    pub is_active: Option<bool>,
+}
+
+#[derive(InputObject, Deserialize)]
+pub struct EmailIngestInput {
+    pub project_id: Uuid,
+    pub from_email: String,
+    pub from_name: Option<String>,
+    pub to_emails: Vec<String>,
+    pub cc_emails: Option<Vec<String>>,
+    pub bcc_emails: Option<Vec<String>>,
+    pub subject: String,
+    pub message_preview: Option<String>,
+    pub full_message: String,
+    pub message_html: Option<String>,
+    pub accounting_process: AccountingProcess,
+    pub category_name: Option<String>,
+    pub ai_summary: Option<String>,
+    pub confidence_score: Option<f64>, // Use f64 instead of Decimal for GraphQL compatibility
+    pub extracted_entities: Option<serde_json::Value>,
+    pub message_id: Option<String>,
+    pub thread_id: Option<String>,
+    pub in_reply_to: Option<String>,
+    pub message_date: Option<DateTime<Utc>>,
+    pub has_attachments: Option<bool>,
+    pub attachment_count: Option<i32>,
+    pub processing_notes: Option<String>,
+}
+
+#[derive(InputObject)]
+pub struct ContextFilters {
+    pub context_type_name: Option<String>,
+    pub category_id: Option<Uuid>,
+    pub is_archived: Option<bool>,
+    pub created_after: Option<DateTime<Utc>>,
+    pub created_before: Option<DateTime<Utc>>,
+    pub tags: Option<Vec<String>>,
+}
+
+#[derive(InputObject)]
+pub struct EmailContextFilters {
+    pub accounting_process: Option<AccountingProcess>,
+    pub from_email: Option<String>,
+    pub processing_status: Option<ProcessingStatus>,
+    pub has_attachments: Option<bool>,
+    pub message_date_after: Option<DateTime<Utc>>,
+    pub message_date_before: Option<DateTime<Utc>>,
+    pub search_text: Option<String>, // For full-text search
+}
+
+// Pagination and Response Types
+#[derive(SimpleObject)]
+pub struct ContextConnection {
+    pub edges: Vec<ProjectContext>,
+    pub total_count: u32,
+}
+
+#[derive(SimpleObject)]
+pub struct EmailContextConnection {
+    pub edges: Vec<EmailContext>,
+    pub total_count: u32,
+}
+
+#[derive(SimpleObject)]
+pub struct ContextCategoryConnection {
+    pub edges: Vec<ProjectContextCategory>,
+    pub total_count: u32,
 }
 
 // Comment system input types already defined above

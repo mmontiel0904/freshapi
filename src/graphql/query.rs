@@ -526,4 +526,142 @@ impl QueryRoot {
 
         Ok(activities.into_iter().map(|a| a.into()).collect())
     }
+
+    // ============================================================================
+    // ProjectMind Context System Queries
+    // ============================================================================
+
+    /// Get all available context types
+    async fn context_types(&self, ctx: &Context<'_>, active_only: Option<bool>) -> Result<Vec<crate::graphql::types::ContextType>> {
+        let context_service = ctx.data::<crate::services::ContextService>()?;
+        
+        let types = context_service
+            .get_context_types(active_only.unwrap_or(true))
+            .await
+            .map_err(|e| Error::new(format!("Failed to fetch context types: {}", e)))?;
+
+        Ok(types.into_iter().map(Into::into).collect())
+    }
+
+    /// Get project context categories
+    async fn project_context_categories(
+        &self,
+        ctx: &Context<'_>,
+        project_id: Uuid,
+        context_type_name: Option<String>,
+    ) -> Result<Vec<crate::graphql::types::ProjectContextCategory>> {
+        let context_service = ctx.data::<crate::services::ContextService>()?;
+        let _authenticated_user = ctx.data::<AuthenticatedUser>()?;
+        
+        let categories = context_service
+            .get_project_categories(project_id, context_type_name)
+            .await
+            .map_err(|e| Error::new(format!("Failed to fetch categories: {}", e)))?;
+
+        Ok(categories.into_iter().map(Into::into).collect())
+    }
+
+    /// Get project contexts with filtering and pagination
+    async fn project_contexts(
+        &self,
+        ctx: &Context<'_>,
+        project_id: Uuid,
+        filters: Option<crate::graphql::types::ContextFilters>,
+        limit: Option<i32>,
+        offset: Option<i32>,
+    ) -> Result<crate::graphql::types::ContextConnection> {
+        let context_service = ctx.data::<crate::services::ContextService>()?;
+        let _authenticated_user = ctx.data::<AuthenticatedUser>()?;
+        
+        let result = context_service
+            .get_project_contexts(
+                project_id,
+                filters,
+                limit.map(|l| l.max(0) as u64),
+                offset.map(|o| o.max(0) as u64),
+            )
+            .await
+            .map_err(|e| Error::new(format!("Failed to fetch project contexts: {}", e)))?;
+
+        Ok(result)
+    }
+
+    /// Get email contexts with filtering and pagination
+    async fn email_contexts(
+        &self,
+        ctx: &Context<'_>,
+        project_id: Uuid,
+        filters: Option<crate::graphql::types::EmailContextFilters>,
+        limit: Option<i32>,
+        offset: Option<i32>,
+    ) -> Result<crate::graphql::types::EmailContextConnection> {
+        let email_service = ctx.data::<crate::services::EmailContextService>()?;
+        let _authenticated_user = ctx.data::<AuthenticatedUser>()?;
+        
+        let result = email_service
+            .get_email_contexts(
+                project_id,
+                filters,
+                limit.map(|l| l.max(0) as u64),
+                offset.map(|o| o.max(0) as u64),
+            )
+            .await
+            .map_err(|e| Error::new(format!("Failed to fetch email contexts: {}", e)))?;
+
+        Ok(result)
+    }
+
+    /// Get single email context by ID
+    async fn email_context(&self, ctx: &Context<'_>, email_id: Uuid) -> Result<Option<crate::graphql::types::EmailContext>> {
+        let email_service = ctx.data::<crate::services::EmailContextService>()?;
+        let _authenticated_user = ctx.data::<AuthenticatedUser>()?;
+        
+        let email = email_service
+            .get_email_context_by_id(email_id)
+            .await
+            .map_err(|e| Error::new(format!("Failed to fetch email context: {}", e)))?;
+
+        Ok(email.map(Into::into))
+    }
+
+    /// Search email contexts with full-text search
+    async fn search_email_contexts(
+        &self,
+        ctx: &Context<'_>,
+        project_id: Uuid,
+        query: String,
+        limit: Option<i32>,
+    ) -> Result<Vec<crate::graphql::types::EmailContext>> {
+        let email_service = ctx.data::<crate::services::EmailContextService>()?;
+        let _authenticated_user = ctx.data::<AuthenticatedUser>()?;
+        
+        let results = email_service
+            .search_emails(
+                project_id,
+                &query,
+                limit.map(|l| l.max(0) as u64),
+            )
+            .await
+            .map_err(|e| Error::new(format!("Failed to search email contexts: {}", e)))?;
+
+        Ok(results.into_iter().map(Into::into).collect())
+    }
+
+    /// Get email thread by thread ID
+    async fn email_thread(
+        &self,
+        ctx: &Context<'_>,
+        project_id: Uuid,
+        thread_id: String,
+    ) -> Result<Vec<crate::graphql::types::EmailContext>> {
+        let email_service = ctx.data::<crate::services::EmailContextService>()?;
+        let _authenticated_user = ctx.data::<AuthenticatedUser>()?;
+        
+        let emails = email_service
+            .get_email_thread(&thread_id, project_id)
+            .await
+            .map_err(|e| Error::new(format!("Failed to fetch email thread: {}", e)))?;
+
+        Ok(emails.into_iter().map(Into::into).collect())
+    }
 }

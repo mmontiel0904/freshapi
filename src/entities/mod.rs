@@ -4,9 +4,14 @@ pub mod prelude;
 
 pub mod activity;
 pub mod activity_comment;
+pub mod context_type;
+pub mod email_attachment;
+pub mod email_context;
 pub mod invitation;
 pub mod permission;
 pub mod project;
+pub mod project_context;
+pub mod project_context_category;
 pub mod project_member;
 pub mod resource;
 pub mod role;

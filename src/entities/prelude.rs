@@ -2,9 +2,14 @@
 
 pub use super::activity::Entity as Activity;
 pub use super::activity_comment::Entity as ActivityComment;
+pub use super::context_type::Entity as ContextType;
+pub use super::email_attachment::Entity as EmailAttachment;
+pub use super::email_context::Entity as EmailContext;
 pub use super::invitation::Entity as Invitation;
 pub use super::permission::Entity as Permission;
 pub use super::project::Entity as Project;
+pub use super::project_context::Entity as ProjectContext;
+pub use super::project_context_category::Entity as ProjectContextCategory;
 pub use super::project_member::Entity as ProjectMember;
 pub use super::resource::Entity as Resource;
 pub use super::role::Entity as Role;

@@ -926,6 +926,7 @@ dependencies = [
  "jsonwebtoken",
  "reqwest",
  "resend-rs",
+ "rust_decimal",
  "sea-orm",
  "sea-orm-migration",
  "serde",

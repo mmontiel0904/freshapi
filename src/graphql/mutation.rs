@@ -1,8 +1,9 @@
 use async_graphql::*;
 use sea_orm::{EntityTrait, ActiveModelTrait, Set, ColumnTrait, QueryFilter, PaginatorTrait};
 use chrono::Utc;
+use uuid::Uuid;
 
-use crate::auth::require_user_management;
+use crate::auth::{require_user_management, AuthenticatedUser};
 use crate::graphql::types::{AcceptInvitationInput, AdminResetUserPasswordInput, AuthPayload, ChangePasswordInput, Invitation, InviteUserInput, InviteUserWithRoleInput, LoginInput, MessageResponse, RefreshTokenInput, RegisterInput, RequestPasswordResetInput, ResetPasswordInput, User, AssignRoleInput, Project, Task, CreateProjectInput, UpdateProjectInput, AddProjectMemberInput, UpdateMemberRoleInput, RemoveProjectMemberInput, CreateTaskInput, UpdateTaskInput, AssignTaskInput, Role, Permission, Resource, CreateRoleInput, UpdateRoleInput, CreatePermissionInput, UpdatePermissionInput, CreateResourceInput, UpdateResourceInput, AssignPermissionToRoleInput, RemovePermissionFromRoleInput, GrantUserPermissionInput, RevokeUserPermissionInput, AddCommentInput, Activity, GraphQLEntityType, CompleteTaskWithRecurrenceResponse};
 use crate::services::{EmailService, InvitationService, UserService, ProjectService, TaskService, ProjectRole, ActivityService};
 use crate::services::activity::EntityType;
@@ -1153,5 +1154,132 @@ impl MutationRoot {
             .map_err(|e| Error::new(format!("Failed to add comment: {}", e)))?;
 
         Ok(activity.into())
+    }
+
+    // ============================================================================
+    // ProjectMind Context System Mutations
+    // ============================================================================
+
+    /// Create a new context category for a project
+    async fn create_context_category(
+        &self,
+        ctx: &Context<'_>,
+        input: crate::graphql::types::CreateContextCategoryInput,
+    ) -> Result<crate::graphql::types::ProjectContextCategory> {
+        let context_service = ctx.data::<crate::services::ContextService>()?;
+        let authenticated_user = ctx.data::<AuthenticatedUser>()?;
+
+        let category = context_service
+            .create_context_category(input, authenticated_user.id)
+            .await
+            .map_err(|e| Error::new(format!("Failed to create category: {}", e)))?;
+
+        Ok(category.into())
+    }
+
+    /// Update an existing context category
+    async fn update_context_category(
+        &self,
+        ctx: &Context<'_>,
+        input: crate::graphql::types::UpdateContextCategoryInput,
+    ) -> Result<crate::graphql::types::ProjectContextCategory> {
+        let context_service = ctx.data::<crate::services::ContextService>()?;
+        let _authenticated_user = ctx.data::<AuthenticatedUser>()?;
+
+        let category = context_service
+            .update_context_category(input)
+            .await
+            .map_err(|e| Error::new(format!("Failed to update category: {}", e)))?;
+
+        Ok(category.into())
+    }
+
+    /// Delete (soft delete) a context category
+    async fn delete_context_category(
+        &self,
+        ctx: &Context<'_>,
+        category_id: Uuid,
+    ) -> Result<crate::graphql::types::MessageResponse> {
+        let context_service = ctx.data::<crate::services::ContextService>()?;
+        let _authenticated_user = ctx.data::<AuthenticatedUser>()?;
+
+        context_service
+            .delete_context_category(category_id)
+            .await
+            .map_err(|e| Error::new(format!("Failed to delete category: {}", e)))?;
+
+        Ok(crate::graphql::types::MessageResponse {
+            message: "Category deleted successfully".to_string(),
+        })
+    }
+
+    /// Ingest email context (webhook endpoint)
+    async fn ingest_email_context(
+        &self,
+        ctx: &Context<'_>,
+        input: crate::graphql::types::EmailIngestInput,
+    ) -> Result<crate::graphql::types::EmailContext> {
+        let email_service = ctx.data::<crate::services::EmailContextService>()?;
+        // Note: This endpoint may be called without authentication for webhook usage
+        
+        let email = email_service
+            .ingest_email(input)
+            .await
+            .map_err(|e| Error::new(format!("Failed to ingest email: {}", e)))?;
+
+        Ok(email.into())
+    }
+
+    /// Update email processing status
+    async fn update_email_processing_status(
+        &self,
+        ctx: &Context<'_>,
+        email_id: Uuid,
+        status: crate::graphql::types::ProcessingStatus,
+        notes: Option<String>,
+    ) -> Result<crate::graphql::types::EmailContext> {
+        let email_service = ctx.data::<crate::services::EmailContextService>()?;
+        let _authenticated_user = ctx.data::<AuthenticatedUser>()?;
+
+        let email = email_service
+            .update_processing_status(email_id, status, notes)
+            .await
+            .map_err(|e| Error::new(format!("Failed to update processing status: {}", e)))?;
+
+        Ok(email.into())
+    }
+
+    /// Archive a project context
+    async fn archive_context(
+        &self,
+        ctx: &Context<'_>,
+        context_id: Uuid,
+    ) -> Result<crate::graphql::types::ProjectContext> {
+        let context_service = ctx.data::<crate::services::ContextService>()?;
+        let _authenticated_user = ctx.data::<AuthenticatedUser>()?;
+
+        let context = context_service
+            .archive_context(context_id)
+            .await
+            .map_err(|e| Error::new(format!("Failed to archive context: {}", e)))?;
+
+        Ok(context.into())
+    }
+
+    /// Restore an archived project context
+    async fn restore_context(
+        &self,
+        ctx: &Context<'_>,
+        context_id: Uuid,
+    ) -> Result<crate::graphql::types::ProjectContext> {
+        let context_service = ctx.data::<crate::services::ContextService>()?;
+        let _authenticated_user = ctx.data::<AuthenticatedUser>()?;
+
+        let context = context_service
+            .restore_context(context_id)
+            .await
+            .map_err(|e| Error::new(format!("Failed to restore context: {}", e)))?;
+
+        Ok(context.into())
     }
 }

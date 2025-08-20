@@ -7,7 +7,7 @@ use axum::{
     middleware::{self, Next},
     response::{Html, IntoResponse, Response},
     routing::{get, post},
-    Extension, Router,
+    Extension, Json, Router,
 };
 use dotenvy::dotenv;
 use sea_orm::{Database, DatabaseConnection};
@@ -24,7 +24,7 @@ mod services;
 
 use auth::{AuthenticatedUser, JwtService, PermissionService};
 use graphql::{create_schema, ApiSchema, DataLoaderContext};
-use services::{EmailService, InvitationService, UserService, ProjectService, TaskService, ActivityService};
+use services::{EmailService, InvitationService, UserService, ProjectService, TaskService, ActivityService, ContextService, EmailContextService};
 
 #[derive(Clone)]
 struct AppState {
@@ -39,6 +39,8 @@ struct AppState {
     project_service: ProjectService,
     task_service: TaskService,
     activity_service: ActivityService,
+    context_service: ContextService,
+    email_context_service: EmailContextService,
     frontend_url: String,
 }
 
@@ -93,6 +95,8 @@ async fn graphql_handler(
         .data(state.project_service.clone())
         .data(state.task_service.clone())
         .data(state.activity_service.clone())
+        .data(state.context_service.clone())
+        .data(state.email_context_service.clone())
         .data(state.frontend_url.clone());
     
     state.schema.execute(request).await.into()
@@ -121,6 +125,33 @@ async fn graphql_playground() -> impl IntoResponse {
 
 async fn health() -> impl IntoResponse {
     "OK"
+}
+
+// Webhook endpoint for n8n email ingestion
+async fn ingest_email_webhook(
+    State(state): State<AppState>,
+    Json(payload): Json<crate::graphql::types::EmailIngestInput>,
+) -> Response {
+    // Log the incoming webhook request
+    info!("📧 Received email ingestion webhook for project {}", payload.project_id);
+    
+    match state.email_context_service.ingest_email(payload).await {
+        Ok(email_context) => {
+            info!("✅ Successfully ingested email context {}", email_context.id);
+            (StatusCode::CREATED, Json(serde_json::json!({
+                "success": true,
+                "email_id": email_context.id,
+                "message": "Email context ingested successfully"
+            }))).into_response()
+        }
+        Err(e) => {
+            warn!("❌ Failed to ingest email: {}", e);
+            (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+                "success": false,
+                "error": e.to_string()
+            }))).into_response()
+        }
+    }
 }
 
 async fn graphql_schema(State(state): State<AppState>) -> impl IntoResponse {
@@ -301,6 +332,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let project_service = ProjectService::new(db.clone());
     let activity_service = ActivityService::new(db.clone());
     let task_service = TaskService::new(db.clone(), project_service.clone(), activity_service.clone());
+    let context_service = ContextService::new(db.clone());
+    let email_context_service = EmailContextService::new(db.clone());
 
     // Create GraphQL schema
     let schema = create_schema();
@@ -321,6 +354,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         project_service,
         task_service,
         activity_service,
+        context_service,
+        email_context_service,
         frontend_url,
     };
 
@@ -356,6 +391,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/health", get(health))
         .route("/schema.graphql", get(graphql_schema))
         .route("/schema.json", get(graphql_introspection))
+        .route("/webhooks/email/ingest", post(ingest_email_webhook))
         .layer(cors)
         .layer(middleware::from_fn_with_state(
             jwt_service,
