@@ -636,6 +636,16 @@ impl TaskService {
             _ => return Err("You don't have permission to create tasks in this project".into()),
         }
 
+        // Check for existing task linked to this context (1:1 constraint)
+        let existing_task = Task::find()
+            .filter(task::Column::ContextId.eq(input.context_id))
+            .one(&self.db)
+            .await?;
+
+        if existing_task.is_some() {
+            return Err("A task is already linked to this context. Only one task per context is allowed.".into());
+        }
+
         // Validate assignee if provided
         if let Some(assignee_id) = input.assignee_id {
             let assignee_role = self
@@ -692,6 +702,91 @@ impl TaskService {
             .await?;
 
         Ok(task)
+    }
+
+    /// Update task-context relationship with 1:1 constraint enforcement
+    pub async fn update_task_context(
+        &self,
+        task_id: Uuid,
+        context_id: Option<Uuid>,
+        user_id: Uuid,
+    ) -> Result<task::Model, Box<dyn std::error::Error>> {
+        let task = Task::find_by_id(task_id)
+            .one(&self.db)
+            .await?
+            .ok_or("Task not found")?;
+
+        // Check permissions
+        let user_role = self
+            .project_service
+            .get_user_project_role(task.project_id, user_id)
+            .await?;
+
+        let can_edit = match user_role {
+            Some(role) if role.can_manage_tasks() => true,
+            _ => task.creator_id == user_id,
+        };
+
+        if !can_edit {
+            return Err("Insufficient permissions to update task context".into());
+        }
+
+        // If setting a new context, check 1:1 constraint
+        if let Some(new_context_id) = context_id {
+            // Skip constraint check if task already has this context
+            if task.context_id != Some(new_context_id) {
+                let existing_task = Task::find()
+                    .filter(task::Column::ContextId.eq(new_context_id))
+                    .one(&self.db)
+                    .await?;
+
+                if existing_task.is_some() {
+                    return Err("A task is already linked to this context. Only one task per context is allowed.".into());
+                }
+
+                // Verify context exists and is in the same project
+                let context = crate::entities::project_context::Entity::find_by_id(new_context_id)
+                    .one(&self.db)
+                    .await?
+                    .ok_or("Context not found")?;
+
+                if context.project_id != task.project_id {
+                    return Err("Context and task must belong to the same project".into());
+                }
+            }
+        }
+
+        // Store previous context_id before moving task
+        let previous_context_id = task.context_id;
+        
+        let mut task_active: task::ActiveModel = task.into();
+        task_active.context_id = Set(context_id);
+        task_active.updated_at = Set(Utc::now().into());
+
+        let updated_task = task_active.update(&self.db).await?;
+
+        // Log activity
+        let action_description = match context_id {
+            Some(_) => "linked to context",
+            None => "unlinked from context",
+        };
+
+        self.activity_service
+            .log_activity(
+                crate::services::activity::EntityType::Task,
+                updated_task.id,
+                user_id,
+                "context_updated",
+                Some(format!("Task {}", action_description)),
+                Some(serde_json::json!({
+                    "new_context_id": context_id,
+                    "previous_context_id": previous_context_id
+                })),
+                None,
+            )
+            .await?;
+
+        Ok(updated_task)
     }
 }
 

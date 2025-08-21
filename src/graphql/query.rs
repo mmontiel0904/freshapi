@@ -664,4 +664,48 @@ impl QueryRoot {
 
         Ok(emails.into_iter().map(Into::into).collect())
     }
+
+    // Context-Task relationship queries
+    async fn task_by_context(&self, ctx: &Context<'_>, context_id: Uuid) -> Result<Option<Task>> {
+        use crate::auth::require_permission;
+        require_permission(ctx, "task_system", "task_read").await?;
+        
+        let db = ctx.data::<sea_orm::DatabaseConnection>()?;
+        
+        let task = crate::entities::task::Entity::find()
+            .filter(crate::entities::task::Column::ContextId.eq(context_id))
+            .one(db)
+            .await
+            .map_err(|e| Error::new(format!("Failed to fetch task by context: {}", e)))?;
+            
+        Ok(task.map(|t| t.into()))
+    }
+
+    async fn context_by_task(&self, ctx: &Context<'_>, task_id: Uuid) -> Result<Option<crate::graphql::types::ProjectContext>> {
+        use crate::auth::require_permission;
+        require_permission(ctx, "task_system", "task_read").await?;
+        
+        let db = ctx.data::<sea_orm::DatabaseConnection>()?;
+        
+        // First get the task to find its context_id
+        let task = crate::entities::task::Entity::find_by_id(task_id)
+            .one(db)
+            .await
+            .map_err(|e| Error::new(format!("Failed to fetch task: {}", e)))?;
+            
+        if let Some(task) = task {
+            if let Some(context_id) = task.context_id {
+                let context = crate::entities::project_context::Entity::find_by_id(context_id)
+                    .one(db)
+                    .await
+                    .map_err(|e| Error::new(format!("Failed to fetch context: {}", e)))?;
+                    
+                Ok(context.map(|c| c.into()))
+            } else {
+                Ok(None)
+            }
+        } else {
+            Ok(None)
+        }
+    }
 }

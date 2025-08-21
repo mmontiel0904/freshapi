@@ -1289,6 +1289,18 @@ impl ProjectContext {
             
         Ok(email.map(|e| e.into()))
     }
+    
+    async fn task(&self, ctx: &Context<'_>) -> Result<Option<Task>> {
+        let db = ctx.data::<sea_orm::DatabaseConnection>()?;
+        
+        let task = crate::entities::task::Entity::find()
+            .filter(crate::entities::task::Column::ContextId.eq(self.id))
+            .one(db)
+            .await
+            .map_err(|e| Error::new(format!("Failed to fetch related task: {}", e)))?;
+            
+        Ok(task.map(|t| t.into()))
+    }
 }
 
 #[ComplexObject]
